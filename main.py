@@ -10,7 +10,7 @@ import numpy as np
 import torch
 
 from train import train_loso
-from model_manual import LightweightCNN, SeparableConvCNN, ConvDepthwiseCNN, CNN1DFreqModel, OneDCNN_Custom
+from model_manual import SeparableConvCNN
 
 
 def set_seed(seed: int = 42):
@@ -60,7 +60,11 @@ def main():
 			"use_gyro": True,
 		},
 	)
-
+	# Log code version
+	wandb_run.log_code(
+		root=str(project_root),
+		include_fn=lambda p: p.endswith((".py", ".yaml", ".yml", ".md"))
+	)
 	# Run training loop
 	metrics = train_loso(
 		root_path=root_path,
