@@ -10,7 +10,7 @@ import numpy as np
 import torch
 
 from train import train_loso
-from model_manual import SeparableConvCNN
+from model import SeparableConvCNN
 
 
 def set_seed(seed: int = 42):
