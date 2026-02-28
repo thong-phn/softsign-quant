@@ -9,7 +9,7 @@ from pathlib import Path
 class MyDataset(Dataset):
     def __init__(self, root_path, split='train', subject_ids = None, use_gyro=False):
         """
-        Load UCI-HAR data, compute FFT
+        Load UCI-HAR data
         Args:
             root_path: Path to dataset
             split: 'train' or 'test'
@@ -71,24 +71,8 @@ class MyDataset(Dataset):
         # Get time-domain signal (3, 128) for accel only, or (6, 128) with gyro
         signal = self.signals[idx]
         
-        # Apply FFT to each axis
-        # Output: (3, 31) without gyro, or (6, 31) with gyro
-        fft_mag = []
-        for axis_signal in signal:
-            fft_vals = np.fft.rfft(axis_signal)
-            mag = np.abs(fft_vals) / len(axis_signal)
-            
-            # One-sided amplitude scaling
-            if len(axis_signal) % 2 == 0:
-                mag[1:-1] *= 2
-            else:
-                mag[1:] *= 2
-            
-            fft_mag.append(mag)
-        
-        fft_mag = np.stack(fft_mag, axis=0)  # shape: (num_channels, 31)
-        
-        return torch.FloatTensor(fft_mag), torch.LongTensor([self.labels[idx]])[0]
+        # Return time domain signal without FFT
+        return torch.FloatTensor(signal), torch.LongTensor([self.labels[idx]])[0]
         
 # Training function
 def train_loso(root_path, model_class, train_subjects, val_subjects, wandb_run=None, use_gyro=False, **train_kwargs):
@@ -117,7 +101,11 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, wandb_run=N
     val_dataset = MyDataset(root_path, split='train', subject_ids=val_subjects, use_gyro=use_gyro)
     test_dataset = MyDataset(root_path, split='test', subject_ids=None, use_gyro=use_gyro)
 
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    # Generator for reproducible DataLoader shuffling
+    g = torch.Generator()
+    g.manual_seed(42)
+
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, generator=g)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
@@ -151,10 +139,10 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, wandb_run=N
         
         model.train()
 
-        for fft_mag, labels in train_dataloader:
-            fft_mag, labels = fft_mag.to(device), labels.to(device)
+        for inputs, labels in train_dataloader:
+            inputs, labels = inputs.to(device), labels.to(device)
 
-            outputs = model(fft_mag) # 1. forward 
+            outputs = model(inputs) # 1. forward 
             loss = criterion(outputs, labels) # 2. loss
             optimizer.zero_grad() # 3. backward: zero_grad
             loss.backward() # cal gradient
@@ -175,10 +163,10 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, wandb_run=N
         val_total = 0
         
         with torch.no_grad(): # no need to track grad in val
-            for fft_mag, labels in val_dataloader:
-                fft_mag, labels = fft_mag.to(device), labels.to(device)
+            for inputs, labels in val_dataloader:
+                inputs, labels = inputs.to(device), labels.to(device)
                 
-                outputs = model(fft_mag)
+                outputs = model(inputs)
                 loss = criterion(outputs, labels)
 
                 val_loss_sum += loss.item() * labels.size(0)
@@ -226,9 +214,9 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, wandb_run=N
 
     test_loss_sum, test_correct, test_total = 0.0, 0, 0
     with torch.no_grad():
-        for fft_mag, labels in test_dataloader:
-            fft_mag, labels = fft_mag.to(device), labels.to(device)
-            outputs = model(fft_mag)
+        for inputs, labels in test_dataloader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
             loss = criterion(outputs, labels)
 
             bs = labels.size(0)

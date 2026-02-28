@@ -3,6 +3,40 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+class SoftsignQuant(nn.Module):
+    """
+    Learnable Softsign-based Quantization (Algorithm 7).
+    """
+    def __init__(self, bit_width=4, k_init=1.0, mu_init=0.0):
+        super(SoftsignQuant, self).__init__()
+        self.bit_width = bit_width
+        self.S = (2**(bit_width - 1) - 1) / 2.0
+        
+        # Learnable parameters
+        self.k = nn.Parameter(torch.tensor(k_init, dtype=torch.float32))
+        self.mu = nn.Parameter(torch.tensor(mu_init, dtype=torch.float32))
+        
+    def forward(self, x):
+        # Softsign calculation (forward pass)
+        z = self.k * (x - self.mu)
+        d = 1.0 + torch.abs(z)
+        y_raw = z / d
+        y = y_raw * self.S
+        
+        # Hardware clamp (simulated behavior)
+        max_val = 2**(self.bit_width - 1) - 1
+        min_val = - (2**(self.bit_width - 1))
+        
+        # Straight-through estimator for rounding and clamping
+        y_round = torch.round(y)
+        y_clamp = torch.clamp(y_round, min_val, max_val)
+        
+        # Detach gradient for rounding/clamping, but keep for y
+        out = (y_clamp - y).detach() + y
+        
+        return out
+
+
 class GumbelMaskSeparableConvCNN(nn.Module):
     """
     SeparableConv-based CNN with Gumbel-Softmax bin on/off masking.
@@ -114,10 +148,11 @@ class SeparableConvCNN(nn.Module):
     def __init__(self, num_classes=6, num_channels=3, freq_bins=65, dropout=0.4):
         super(SeparableConvCNN, self).__init__()
         
-        # Input shape: (batch, num_channels, 31) where num_channels is 3 (accel) or 6 (accel+gyro)
+        # Input shape: (batch, num_channels, 128) where num_channels is 3 (accel) or 6 (accel+gyro)
         
         # Stem block
         self.bn0 = nn.BatchNorm1d(num_channels)
+        self.quant = SoftsignQuant(bit_width=4)
         self.sep_conv1 = SeparableConv1d(num_channels, 32, kernel_size=5, padding=2)
         self.bn1 = nn.BatchNorm1d(32)
         self.pool1 = nn.MaxPool1d(2)  # 31 -> 15
@@ -144,10 +179,11 @@ class SeparableConvCNN(nn.Module):
         self.fc2 = nn.Linear(64, num_classes)
     
     def forward(self, x):
-        # x: (batch, num_channels, 31)
+        # x: (batch, num_channels, 128)
         
         # Stem
         x = self.bn0(x)
+        x = self.quant(x)
         x = F.relu(self.sep_conv1(x))
         x = self.bn1(x)
         x = self.pool1(x)
