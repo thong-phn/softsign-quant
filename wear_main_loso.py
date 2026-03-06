@@ -97,21 +97,24 @@ def main():
         prefix = "_".join(prefix_parts)
         model_save_path = project_root / "models" / f"{prefix}_val_{val_subject}.pth"
         
+        # Define num_channels (assuming 6 for IMU data)
+        num_channels = 6
+
         # Run training loop
         metrics = train_loso(
             root_path=root_path,
-            model_class=SeparableConvCNN,
+            val_subject=val_subject,
             train_subjects=train_subjects,
-            val_subjects=val_subjects,
-            test_subjects=test_subjects,
-            wandb_run=wandb_run,
+            test_subjects=test_eval_subjects,
             epochs=60,
-            lr=1e-3,
             batch_size=64,
-            device=device,
-            model_path=model_save_path,
+            learning_rate=0.001,
+            num_channels=num_channels,
             use_quant=use_quant,
-            per_channel_quant=per_channel_quant
+            per_channel_quant=per_channel_quant,
+            project_name="softsign-quant",
+            run_name_prefix="wear-loso",
+            model_save_prefix=f"wear_{prefix}" # Changed to use 'prefix' variable
         )
 
         print(f"\nFinal metrics for Fold (Val {val_subject}):")

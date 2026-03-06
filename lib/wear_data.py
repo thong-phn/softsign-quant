@@ -15,30 +15,31 @@ from pathlib import Path
 
 LABEL_MAP = {
     'jogging': 0,
-    'jogging sidestep': 0,
-    'skipping': 0,
-    'butt-kicks': 0,
-    'rotating arms': 0,
+    'jogging (sidesteps)': 0,
+    'jogging (skipping)': 0,
+    'jogging (butt-kicks)': 0,
+    'jogging (rotating arms)': 0,
     
-    'stretching lunging': 1,
-    'hamstrings': 1,
-    'triceps': 1,
-    'shoulders': 1,
+    'stretching (lunging)': 1,
+    'stretching (hamstrings)': 1,
+    'stretching (triceps)': 1,
+    'stretching (shoulders)': 1,
+    'stretching (lumbar rotation)': 1,
     
     'lunges': 2,
+    'lunges (complex)': 2,
     
     'sit-ups': 3,
-    'sit-ups complex': 3,
+    'sit-ups (complex)': 3,
     
     'push-ups': 4,
-    'push-ups complex': 4,
+    'push-ups (complex)': 4,
     
     'burpees': 5,
     
     'bench-dips': 6,
     
     'null': 7,
-    'idle': 7
 }
 
 
@@ -86,9 +87,12 @@ def load_and_window_subject_data(file_path, window_size=100, step_size=50):
             if not row[lx_idx].strip() or not row[ly_idx].strip() or not row[lz_idx].strip():
                 continue
                 
+            acc_data.append([float(row[lx_idx]), float(row[ly_idx]), float(row[lz_idx])])
+            
             if lbl_str in LABEL_MAP:
-                acc_data.append([float(row[lx_idx]), float(row[ly_idx]), float(row[lz_idx])])
                 mapped_labels.append(LABEL_MAP[lbl_str])
+            else:
+                mapped_labels.append(-1)
 
     acc_data = np.array(acc_data, dtype=np.float32)
     mapped_labels = np.array(mapped_labels, dtype=np.int64)
@@ -106,9 +110,14 @@ def load_and_window_subject_data(file_path, window_size=100, step_size=50):
         window_signal = acc_data[start:end]
         window_label_seq = mapped_labels[start:end]
         
-        # Most frequent label in the window
-        # Using np.bincount to find mode for non-negative ints
-        mode_label = np.bincount(window_label_seq).argmax()
+        # Most frequent label in the window using offset to support -1
+        counts = np.bincount(window_label_seq + 1)
+        mode_idx = counts.argmax()
+        mode_label = mode_idx - 1
+        
+        # Discard window if mode is invalid (-1)
+        if mode_label == -1:
+            continue
         
         # Append signal transposed to shape (3, window_size)
         windows_signals.append(window_signal.T)
