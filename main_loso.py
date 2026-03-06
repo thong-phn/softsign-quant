@@ -23,7 +23,16 @@ def set_seed(seed: int = 42):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+import argparse
+
 def main():
+    parser = argparse.ArgumentParser(description="LOSO Training script")
+    parser.add_argument("--no-quant", action="store_true", help="Disable the Softsign Quanzation layer")
+    parser.add_argument("--per-channel-quant", action="store_true", help="Use per-channel quantization")
+    args = parser.parse_args()
+    use_quant = not args.no_quant
+    per_channel_quant = args.per_channel_quant
+
     set_seed(42)
 
     project_root = Path(__file__).resolve().parent
@@ -39,6 +48,8 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
+    print(f"Using Quantization Layer: {use_quant}")
+    print(f"Using Per-Channel Quantization: {per_channel_quant}")
     print(f"Total Training Subjects ({len(all_train_subjects)}): {all_train_subjects}")
     print(f"Fixed Test Subjects ({len(test_subjects)}): {test_subjects}")
     
@@ -57,7 +68,7 @@ def main():
         # Tracking init
         wandb_run = wandb.init(
             project="softsign-quant",
-            name=f"loso-val-{val_subject}",
+            name=f"loso-val-{val_subject}-quant-{use_quant}-per-channel-{per_channel_quant}",
             reinit=True, # Allow multiple runs in one script
             config={
                 "train_subjects": train_subjects,
@@ -68,6 +79,8 @@ def main():
                 "batch_size": 64,
                 "model": "SeparableConvCNN",
                 "use_gyro": True,
+                "use_quant": use_quant,
+                "per_channel_quant": per_channel_quant,
                 "fold": val_subject
             },
         )
@@ -79,7 +92,13 @@ def main():
         )
         
         # Save model dynamically based on fold
-        model_save_path = project_root / "models" / f"best_model_loso_val_{val_subject}.pth"
+        prefix_parts = ["best_model_loso"]
+        if not use_quant:
+            prefix_parts.append("no_quant")
+        elif per_channel_quant:
+            prefix_parts.append("per_channel")
+        prefix = "_".join(prefix_parts)
+        model_save_path = project_root / "models" / f"{prefix}_val_{val_subject}.pth"
         
         # Run training loop
         metrics = train_loso(
@@ -94,6 +113,8 @@ def main():
             batch_size=64,
             device=device,
             model_path=model_save_path,
+            use_quant=use_quant,
+            per_channel_quant=per_channel_quant
         )
 
         print(f"\nFinal metrics for Fold (Val {val_subject}):")
@@ -123,7 +144,13 @@ def main():
     print(f"Average Test F1-Macro: {avg_test_f1:.2f}% ± {std_test_f1:.2f}%")
     
     # Save a log file inside current directory
-    with open("loso_results.log", "w") as f:
+    log_name = "loso_results"
+    if not use_quant:
+        log_name += "_no_quant"
+    elif per_channel_quant:
+        log_name += "_per_channel"
+    log_name += ".log"
+    with open(log_name, "w") as f:
         f.write(f"Average Test Accuracy: {avg_test_acc:.2f}% ± {std_test_acc:.2f}%\n")
         f.write(f"Average Test F1-Macro: {avg_test_f1:.2f}% ± {std_test_f1:.2f}%\n\n")
         f.write("Detailed Fold Results:\n")

@@ -9,8 +9,8 @@ import random
 import numpy as np
 import torch
 
-from train import train_loso
-from model import SeparableConvCNN
+from lib.train import train_loso
+from lib.model import SeparableConvCNN
 
 
 def set_seed(seed: int = 42):

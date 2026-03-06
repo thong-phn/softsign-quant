@@ -226,9 +226,9 @@ def main():
     original_model.eval()
     
     # Extract Softsign parameters
-    k_val = original_model.quant.k.item()
-    mu_val = original_model.quant.mu.item()
-    print(f"Extracted Softsign k = {k_val:.4f}, mu = {mu_val:.4f}")
+    k_val = original_model.quant.k.detach().clone()
+    mu_val = original_model.quant.mu.detach().clone()
+    print(f"Extracted Softsign parameters")
     
     # Bundle preprocessor
     bn0_clone = copy.deepcopy(original_model.bn0)

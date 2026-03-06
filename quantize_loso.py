@@ -73,7 +73,16 @@ def evaluate_baseline_f32(model, data_loader, device):
             correct += predicted.eq(labels).sum().item()
     return 100. * correct / max(total, 1)
 
+import argparse
+
 def main():
+    parser = argparse.ArgumentParser(description="Evaluate Quantized Models")
+    parser.add_argument("--no-quant", action="store_true", help="Disable the Softsign Quanzation layer")
+    parser.add_argument("--per-channel-quant", action="store_true", help="Use per-channel quantization models")
+    args = parser.parse_args()
+    use_quant = not args.no_quant
+    per_channel_quant = args.per_channel_quant
+
     set_seed(42)
 
     project_root = Path(__file__).resolve().parent
@@ -105,7 +114,14 @@ def main():
 
     for val_subject in all_train_subjects:
         train_subjects = [s for s in all_train_subjects if s != val_subject]
-        model_path = project_root / "models" / f"best_model_loso_val_{val_subject}.pth"
+        
+        prefix_parts = ["best_model_loso"]
+        if not use_quant:
+            prefix_parts.append("no_quant")
+        elif per_channel_quant:
+            prefix_parts.append("per_channel")
+        prefix = "_".join(prefix_parts)
+        model_path = project_root / "models" / f"{prefix}_val_{val_subject}.pth"
         
         print(f"\n{'='*50}")
         print(f"Quantizing Fold | Model: Val Subject {val_subject}")
@@ -116,16 +132,35 @@ def main():
             continue
 
         # 1. Load Original Model
-        original_model = SeparableConvCNN(num_classes=6, num_channels=num_channels)
+        original_model = SeparableConvCNN(num_classes=6, num_channels=num_channels, use_quant=use_quant, per_channel_quant=per_channel_quant)
         original_model.load_state_dict(torch.load(model_path, map_location="cpu"))
         original_model.eval()
 
-        k_val = original_model.quant.k.item()
-        mu_val = original_model.quant.mu.item()
-        
-        # 2. Build Preprocessor and Exportable Skeleton
         bn0_clone = copy.deepcopy(original_model.bn0)
-        preprocessor = Preprocessor(bn0_clone, k_val, mu_val)
+        
+        if use_quant:
+            k_val = original_model.quant.k.detach().clone()
+            mu_val = original_model.quant.mu.detach().clone()
+            preprocessor = Preprocessor(bn0_clone, k_val, mu_val)
+        else:
+            # Create a dummy preprocessor that just applies BatchNorm
+            # Use k=1, mu=0, bit_width=32 to largely simulate an identity passthrough for the softsign step,
+            # but since Preprocessor natively clips to INT4 (-8 to +7), we must bypass it for Float32 baseline comparisons.
+            # Actually, `exportable_model` expects the input to be normalized but untouched by Softsign.
+            class DummyPreprocessor:
+                def __init__(self, bn):
+                    self.bn_mean = bn.running_mean.view(1, -1, 1).detach()
+                    self.bn_var = bn.running_var.view(1, -1, 1).detach()
+                    self.bn_weight = bn.weight.view(1, -1, 1).detach()
+                    self.bn_bias = bn.bias.view(1, -1, 1).detach()
+                    self.bn_eps = bn.eps
+                def __call__(self, x):
+                    x = (x - self.bn_mean) / torch.sqrt(self.bn_var + self.bn_eps)
+                    return x * self.bn_weight + self.bn_bias
+                def eval(self): pass
+            preprocessor = DummyPreprocessor(bn0_clone)
+        
+        # 2. Build Exportable Skeleton
 
         exportable_model = ExportableSeparableConvCNN(num_classes=6, num_channels=num_channels)
         model_state = exportable_model.state_dict()
@@ -188,7 +223,14 @@ def main():
         })
         
         # Save quantized model locally to disc based on fold ID
-        torch.save(quantized_model.state_dict(), project_root / "models" / f"best_model_ptq_int8_val_{val_subject}.pth")
+        out_prefix_parts = ["best_model_ptq_int8"]
+        if not use_quant:
+            out_prefix_parts.append("no_quant")
+        elif per_channel_quant:
+            out_prefix_parts.append("per_channel")
+        out_prefix = "_".join(out_prefix_parts)
+            
+        torch.save(quantized_model.state_dict(), project_root / "models" / f"{out_prefix}_val_{val_subject}.pth")
 
     if len(fold_results) == 0:
         print("No metrics collected. Did the original trained Float32 models execute successfully?")
@@ -211,7 +253,14 @@ def main():
     print(f"Quantized INT8 Test Accuracy (Across {len(fold_results)} folds): {mean_int8_acc:.2f}% ± {std_int8_acc:.2f}%")
     print(f"Quantized INT8 Test F1-Macro (Across {len(fold_results)} folds): {mean_int8_f1:.2f}% ± {std_int8_f1:.2f}%")
 
-    with open("quantize_loso_results.log", "w") as f:
+    log_name = "quantize_loso_results"
+    if not use_quant:
+        log_name += "_no_quant"
+    elif per_channel_quant:
+        log_name += "_per_channel"
+    log_name += ".log"
+    
+    with open(log_name, "w") as f:
         f.write(f"Baseline F32 Test Accuracy: {mean_f32:.2f}% +- {std_f32:.2f}%\n")
         f.write(f"Quantized INT8 Test Accuracy: {mean_int8_acc:.2f}% +- {std_int8_acc:.2f}%\n")
         f.write(f"Quantized INT8 Test F1-Macro: {mean_int8_f1:.2f}% +- {std_int8_f1:.2f}%\n\n")
