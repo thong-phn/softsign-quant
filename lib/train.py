@@ -28,11 +28,17 @@ class MyDataset(Dataset):
         all_labels = np.loadtxt(path_to_y_file, dtype=int) - 1 # 0-indexed [0, 1, 2, 3, 4, 5]
         all_subjects = np.loadtxt(path_to_subject_file, dtype=int)
         
+        # # Load accelerometer data (body acceleration)
+        # signal_files = {       
+        #     "X": f"body_acc_x_{split}.txt",
+        #     "Y": f"body_acc_y_{split}.txt",
+        #     "Z": f"body_acc_z_{split}.txt",
+        # }
         # Load accelerometer data (body acceleration)
         signal_files = {       
-            "X": f"body_acc_x_{split}.txt",
-            "Y": f"body_acc_y_{split}.txt",
-            "Z": f"body_acc_z_{split}.txt",
+            "X": f"total_acc_x_{split}.txt",
+            "Y": f"total_acc_y_{split}.txt",
+            "Z": f"total_acc_z_{split}.txt",
         }
         signals = []
         for axis in ["X", "Y", "Z"]:
