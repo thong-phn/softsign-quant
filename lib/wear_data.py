@@ -1,0 +1,162 @@
+import torch
+import numpy as np
+from torch.utils.data import Dataset
+from pathlib import Path
+
+# Mapping of fine-grained text labels to broader integer labels [0, 7]
+# 1. jogging (jogging and jogging sidestep, skipping, butt-kicks, rotating arms)                      
+# 2. stretching (stretching lunging, hamstrings, triceps, shoulders)                        
+# 3. lunges                              
+# 4. sit-ups (sit-ups and sit-ups complex)                            
+# 5. push-ups (push-ups and push-ups complex)                           
+# 6. burpees                             
+# 7. bench-dips                          
+# 8. idle (null) 
+
+LABEL_MAP = {
+    'jogging': 0,
+    'jogging sidestep': 0,
+    'skipping': 0,
+    'butt-kicks': 0,
+    'rotating arms': 0,
+    
+    'stretching lunging': 1,
+    'hamstrings': 1,
+    'triceps': 1,
+    'shoulders': 1,
+    
+    'lunges': 2,
+    
+    'sit-ups': 3,
+    'sit-ups complex': 3,
+    
+    'push-ups': 4,
+    'push-ups complex': 4,
+    
+    'burpees': 5,
+    
+    'bench-dips': 6,
+    
+    'null': 7,
+    'idle': 7
+}
+
+
+import csv
+
+def load_and_window_subject_data(file_path, window_size=100, step_size=50):
+    """
+    Loads a single subject's CSV, extracts 'left_arm_acc_x,y,z' and 'label',
+    maps the labels, and applies a sliding window.
+    
+    Args:
+        file_path: pathlib.Path to the subject's csv file
+        window_size: number of samples per window (default: 100 for 2s at 50Hz)
+        step_size: number of samples to slide the window (default: 50 for 50% overlap)
+        
+    Returns:
+        signals: numpy array of shape (num_windows, 3, window_size)
+        labels: numpy array of shape (num_windows,)
+    """
+    acc_data = []
+    mapped_labels = []
+
+    with open(file_path, newline='', encoding='utf-8') as f:
+        reader = csv.reader(f)
+        headers = next(reader)
+        
+        # WEAR CSV is: sbj_id, right_arm_acc_x, right_arm_acc_y, right_arm_acc_z, 
+        # right_leg_acc_x, right_leg_acc_y, right_leg_acc_z, 
+        # left_leg_acc_x, left_leg_acc_y, left_leg_acc_z, 
+        # left_arm_acc_x, left_arm_acc_y, left_arm_acc_z, label
+        
+        try:
+            lx_idx = headers.index('left_arm_acc_x')
+            ly_idx = headers.index('left_arm_acc_y')
+            lz_idx = headers.index('left_arm_acc_z')
+            lbl_idx = headers.index('label')
+        except ValueError as e:
+            print(f"Error finding columns in {file_path}: {e}")
+            return np.array([]), np.array([])
+
+        for row in reader:
+            lbl_str = row[lbl_idx].strip()
+            
+            # Skip rows where either x, y, or z is empty
+            if not row[lx_idx].strip() or not row[ly_idx].strip() or not row[lz_idx].strip():
+                continue
+                
+            if lbl_str in LABEL_MAP:
+                acc_data.append([float(row[lx_idx]), float(row[ly_idx]), float(row[lz_idx])])
+                mapped_labels.append(LABEL_MAP[lbl_str])
+
+    acc_data = np.array(acc_data, dtype=np.float32)
+    mapped_labels = np.array(mapped_labels, dtype=np.int64)
+    
+    num_samples = len(acc_data)
+    
+    windows_signals = []
+    windows_labels = []
+    
+    # Sliding window
+    for start in range(0, num_samples - window_size + 1, step_size):
+        end = start + window_size
+        
+        # Extracted window
+        window_signal = acc_data[start:end]
+        window_label_seq = mapped_labels[start:end]
+        
+        # Most frequent label in the window
+        # Using np.bincount to find mode for non-negative ints
+        mode_label = np.bincount(window_label_seq).argmax()
+        
+        # Append signal transposed to shape (3, window_size)
+        windows_signals.append(window_signal.T)
+        windows_labels.append(mode_label)
+        
+    return np.array(windows_signals, dtype=np.float32), np.array(windows_labels, dtype=np.int64)
+
+
+class WearDataset(Dataset):
+    def __init__(self, root_path, subject_ids):
+        """
+        Load WEAR data for specific subjects.
+        
+        Args:
+            root_path: Path object to the WEAR dataset root directory (containing sbj_X.csv)
+            subject_ids: List of integers specifying which subjects to load
+        """
+        all_signals = []
+        all_labels = []
+        all_subjects = []
+        
+        root_path = Path(root_path)
+        for sbj_id in subject_ids:
+            file_path = root_path / f"sbj_{sbj_id}.csv"
+            if not file_path.exists():
+                print(f"Warning: {file_path} not found. Skipping.")
+                continue
+                
+            signals, labels = load_and_window_subject_data(file_path)
+            
+            all_signals.append(signals)
+            all_labels.append(labels)
+            all_subjects.extend([sbj_id] * len(labels))
+            
+        if len(all_signals) > 0:
+            self.signals = np.concatenate(all_signals, axis=0)
+            self.labels = np.concatenate(all_labels, axis=0)
+            self.subjects = np.array(all_subjects)
+        else:
+            self.signals = np.array([])
+            self.labels = np.array([])
+            self.subjects = np.array([])
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        # Return (input, target) as tensors
+        x = torch.tensor(self.signals[idx], dtype=torch.float32)
+        y = torch.tensor(self.labels[idx], dtype=torch.long)
+        return x, y
