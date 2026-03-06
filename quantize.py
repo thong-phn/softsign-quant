@@ -10,8 +10,8 @@ import sys
 # Ensure custom modules load
 sys.path.append(str(Path(__file__).parent.resolve()))
 
-from model import SeparableConvCNN, SeparableConv1d, SoftsignQuant
-from train import MyDataset
+from lib.model import SeparableConvCNN, SeparableConv1d, SoftsignQuant
+from lib.train import MyDataset
 import random
 
 def set_seed(seed: int = 42):
@@ -145,22 +145,26 @@ class ExportableSeparableConvCNN(nn.Module):
         x = self.dequant_stub(x)
         return x
 
-class Preprocessor(nn.Module):
+class Preprocessor:
     """
     Simulates the external preprocessing pipeline.
     Raw Data -> BatchNorm (Normalization) -> Softsign 
     """
     def __init__(self, bn_layer, k, mu, bit_width=4):
-        super().__init__()
-        self.bn = bn_layer
-        self.k = nn.Parameter(torch.tensor(k, dtype=torch.float32), requires_grad=False)
-        self.mu = nn.Parameter(torch.tensor(mu, dtype=torch.float32), requires_grad=False)
+        self.bn_mean = bn_layer.running_mean.view(1, -1, 1).detach()
+        self.bn_var = bn_layer.running_var.view(1, -1, 1).detach()
+        self.bn_weight = bn_layer.weight.view(1, -1, 1).detach()
+        self.bn_bias = bn_layer.bias.view(1, -1, 1).detach()
+        self.bn_eps = bn_layer.eps
+        self.k = k
+        self.mu = mu
         self.bit_width = bit_width
         self.S = (2**(bit_width - 1) - 1) / 2.0
         
-    def forward(self, x):
-        # Apply trained BatchNorm manually
-        x = self.bn(x)
+    def __call__(self, x):
+        # Apply trained BatchNorm math
+        x = (x - self.bn_mean) / torch.sqrt(self.bn_var + self.bn_eps)
+        x = x * self.bn_weight + self.bn_bias
         
         # Softsign
         z = self.k * (x - self.mu)
@@ -176,7 +180,11 @@ class Preprocessor(nn.Module):
         return out
 
 def evaluate(preprocessor, model, data_loader, device):
-    preprocessor.eval()
+    """
+    Trained Quantizer -> SeparableConvCNN
+    """
+    if hasattr(preprocessor, 'eval'):
+        preprocessor.eval()
     model.eval()
     correct = 0
     total = 0
@@ -191,6 +199,9 @@ def evaluate(preprocessor, model, data_loader, device):
     return 100. * correct / total
 
 def evaluate_baseline(model, data_loader, device):
+    """
+    Baseline model: Input -> Batch Normalization -> Softsign -> SeparableConvCNN Model
+    """
     model.eval()
     correct = 0
     total = 0
@@ -209,21 +220,21 @@ def main():
     model_path = Path("./models/best_model_subject1_val.pth")
     num_channels = 6 
     
-    print("1. Loading Original Trained Float32 Model...")
+    print("[STEP 1/5] Loading Best model (Trained Float32 Model)")
     original_model = SeparableConvCNN(num_classes=6, num_channels=num_channels)
     original_model.load_state_dict(torch.load(model_path, map_location="cpu"))
     original_model.eval()
     
-    # Extract
+    # Extract Softsign parameters
     k_val = original_model.quant.k.item()
     mu_val = original_model.quant.mu.item()
-    print(f"-> Extracted Softsign k = {k_val:.4f}, mu = {mu_val:.4f}")
+    print(f"Extracted Softsign k = {k_val:.4f}, mu = {mu_val:.4f}")
     
     # Bundle preprocessor
     bn0_clone = copy.deepcopy(original_model.bn0)
     preprocessor = Preprocessor(bn0_clone, k_val, mu_val)
     
-    print("\n2. Building Exportable Model (BN -> Conv replacement)...")
+    print("\n[STEP 2/5] Building Exportable Model (BN -> Conv replacement)")
     model = ExportableSeparableConvCNN(num_classes=6, num_channels=num_channels)
     
     # Manually port weights 
