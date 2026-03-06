@@ -35,6 +35,7 @@ jinja2==3.1.6
 joblib==1.5.3
 kagglehub==1.0.0
 kagglesdk==0.1.16
+keras==3.13.2
 keras-nightly==3.14.0.dev2026030504
 libclang==18.1.1
 litert-torch==0.8.0
@@ -84,7 +85,9 @@ six==1.17.0
 sympy==1.14.0
 tabulate==0.10.0
 tb-nightly==2.20.0a20250717
+tensorboard==2.20.0
 tensorboard-data-server==0.7.2
+tensorflow==2.20.0
 termcolor==3.3.0
 threadpoolctl==3.6.0
 tokenizers==0.22.2

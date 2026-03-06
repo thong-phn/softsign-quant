@@ -10,7 +10,6 @@ from ai_edge_quantizer import Quantizer
 from pathlib import Path
 import sys
 import copy
-import argparse
 
 # Ensure custom modules load
 sys.path.append(str(Path(__file__).parent.resolve()))
@@ -22,20 +21,14 @@ from lib.train import MyDataset
 def export_tflite(val_subject=1, use_quant=True, per_channel_quant=False):
     root_path = Path("./uci-har")
     
-    prefix_parts = ["best_model_loso"]
-    if not use_quant:
-        prefix_parts.append("no_quant")
-    elif per_channel_quant:
-        prefix_parts.append("per_channel")
-    prefix = "_".join(prefix_parts)
+    prefix = "best_model_loso"
+    if per_channel_quant:
+        prefix += "_per_channel"
     model_path = Path(f"./models/{prefix}_val_{val_subject}.pth")
     
-    out_prefix_parts = ["best_model_ptq_int8"]
-    if not use_quant:
-        out_prefix_parts.append("no_quant")
-    elif per_channel_quant:
-        out_prefix_parts.append("per_channel")
-    out_prefix = "_".join(out_prefix_parts)
+    out_prefix = "best_model_ptq_int8"
+    if per_channel_quant:
+        out_prefix += "_per_channel"
     output_tflite = Path(f"./models/{out_prefix}_val_{val_subject}.tflite")
     num_channels = 6
     
@@ -44,25 +37,16 @@ def export_tflite(val_subject=1, use_quant=True, per_channel_quant=False):
     original_model.load_state_dict(torch.load(model_path, map_location="cpu"))
     original_model.eval()
 
-    bn0_clone = copy.deepcopy(original_model.bn0)
-    
+    # Extract Preprocessor Variables safely (works for scalar and vectors)
     if use_quant:
-        # Extract Preprocessor Variables safely
         k_val = original_model.quant.k.detach().clone()
         mu_val = original_model.quant.mu.detach().clone()
-        preprocessor = Preprocessor(bn0_clone, k_val, mu_val)
     else:
-        class DummyPreprocessor:
-            def __init__(self, bn):
-                self.bn_mean = bn.running_mean.view(1, -1, 1).detach()
-                self.bn_var = bn.running_var.view(1, -1, 1).detach()
-                self.bn_weight = bn.weight.view(1, -1, 1).detach()
-                self.bn_bias = bn.bias.view(1, -1, 1).detach()
-                self.bn_eps = bn.eps
-            def __call__(self, x):
-                x = (x - self.bn_mean) / torch.sqrt(self.bn_var + self.bn_eps)
-                return x * self.bn_weight + self.bn_bias
-        preprocessor = DummyPreprocessor(bn0_clone)
+        k_val = None
+        mu_val = None
+        
+    bn0_clone = copy.deepcopy(original_model.bn0)
+    preprocessor = Preprocessor(bn0_clone, k_val, mu_val) if use_quant else bn0_clone
 
     # 1. Initialize the exportable model architecture natively (Float32) without BN overhead
     model = ExportableSeparableConvCNN(num_classes=6, num_channels=num_channels)
@@ -132,29 +116,8 @@ def export_tflite(val_subject=1, use_quant=True, per_channel_quant=False):
     print(f"Exported successfully to {output_tflite}!")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Export TFLite Models")
-    parser.add_argument("--no-quant", action="store_true", help="Disable the Softsign Quanzation layer")
-    parser.add_argument("--per-channel-quant", action="store_true", help="Use per-channel quantization models")
-    args = parser.parse_args()
-    use_quant = not args.no_quant
-    per_channel_quant = args.per_channel_quant
-
     for val_subj in range(1, 22):
         print(f"\n======================================")
         print(f"Exporting TFLite for Fold {val_subj}/21")
         print(f"======================================")
-        
-        # Check if float model exists before trying to export 
-        prefix_parts = ["best_model_loso"]
-        if not use_quant:
-            prefix_parts.append("no_quant")
-        elif per_channel_quant:
-            prefix_parts.append("per_channel")
-        prefix = "_".join(prefix_parts)
-        model_path = Path(f"./models/{prefix}_val_{val_subj}.pth")
-        
-        if not model_path.exists():
-            print(f"Skipping Fold {val_subj} because {model_path} does not exist yet.")
-            continue
-            
-        export_tflite(val_subject=val_subj, use_quant=use_quant, per_channel_quant=per_channel_quant)
+        export_tflite(val_subject=val_subj)

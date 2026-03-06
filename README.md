@@ -1,3 +1,4 @@
+UCI HAR
 ```
 # Baseline without quantization
 python main_loso.py --no-quant
