@@ -1,7 +1,7 @@
 UCI HAR
 ```
 # Baseline without quantization
-python main_loso.py --no-quant
+python main_loso.py --quantization 'no'
 # Post-training quantization: Weight & bias are int8
 python quantize_loso --no-quant
 

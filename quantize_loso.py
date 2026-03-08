@@ -233,7 +233,14 @@ def main():
 
     log_dir = project_root / "log"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / "quantize_loso_results.log"
+    
+    log_name = "quantize_loso_results"
+    log_name += f"_{quantization}"
+    if per_channel_quant:
+        log_name += "_per_channel"
+    log_name += ".log"
+    
+    log_path = log_dir / log_name
 
     with open(log_path, "w") as f:
         f.write(f"Baseline F32 Test Accuracy: {mean_f32:.2f}% +- {std_f32:.2f}%\n")
