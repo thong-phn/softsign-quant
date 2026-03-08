@@ -41,6 +41,75 @@ class SoftsignQuant(nn.Module):
         
         return out
 
+class UniformQuantizerSTE(nn.Module):
+    """
+    Uniform quantization with straight-through estimator.
+
+    Args:
+        n_bits: int
+            Number of bits for quantization.
+    Forward:
+        x: torch.Tensor
+            Input tensor to be quantized.
+    """
+    def __init__(self, n_bits):
+        super().__init__()
+        self.n_bits = n_bits
+        self.n_levels = 2 ** n_bits
+
+    def forward(self, x):
+        # Scale x from [-1, 1] to [0, n_levels - 1]
+        x_clipped = torch.clamp(x, -1, 1)
+        x_scaled = (x_clipped + 1) * (self.n_levels - 1) / 2
+        x_quant = torch.round(x_scaled)
+        x_dequant = x_quant * 2 / (self.n_levels - 1) - 1
+
+        # Straight-through estimator: use quantized value in forward, but pass gradients as if identity
+        return x + (x_dequant - x).detach()
+        
+
+class gammaFunction(nn.Module):
+    """
+    Gamma function as proposed in paper. 
+
+    Args:
+        init: str
+            Initialization type of gamma function ('id' for identity, 's_shaped' for s-shaped curve).
+        offset: float
+            Offset value for the gamma function.
+    Forward:
+        x_query: torch.Tensor
+            Input tensor to be transformed by the gamma function.
+    """
+    def __init__(self, init="id", offset=0, num_channels=1, per_channel=False):
+        super().__init__()
+        shape = (1, num_channels, 1) if per_channel else (1,)
+        
+        if init == "id":
+            self.gamma = nn.Parameter(torch.ones(shape))
+        elif init == "s_shaped":
+            self.gamma = nn.Parameter(0.4 * torch.ones(shape))
+        
+        self.offset = nn.Parameter(offset * torch.ones(shape))  
+
+    def forward(self, x_query):
+        x_query = torch.clamp(x_query, -1, 1)
+        return torch.sign(x_query - self.offset) * (torch.abs(x_query - self.offset) + 1e-3) ** self.gamma
+
+class GammaQuant(nn.Module):
+    """
+    GammaFunction + UniformQuantizerSTE
+    """
+    def __init__(self, bit_width=4, num_channels=1, per_channel=False, init="s_shaped", offset=0):
+        super(GammaQuant, self).__init__()
+        self.gamma_func = gammaFunction(init=init, offset=offset, num_channels=num_channels, per_channel=per_channel)
+        self.quantizer = UniformQuantizerSTE(n_bits=bit_width)
+        
+    def forward(self, x):
+        x = self.gamma_func(x)
+        x = self.quantizer(x)
+        return x
+
 class SeparableConv1d(nn.Module):
     """Depthwise Separable Convolution (Depthwise + Pointwise)"""
     def __init__(self, in_channels, out_channels, kernel_size, padding=0):
@@ -63,17 +132,23 @@ class SeparableConvCNN(nn.Module):
     SeparableConv-based CNN
     Based on depthwise separable convolutions for efficiency
     """
-    def __init__(self, num_classes=6, num_channels=3, freq_bins=65, dropout=0.4, use_quant=True, per_channel_quant=False):
+    def __init__(self, num_classes=6, num_channels=3, freq_bins=65, dropout=0.4, quantization='softsign', per_channel_quant=False):
         super(SeparableConvCNN, self).__init__()
         
-        self.use_quant = use_quant
+        self.quantization = quantization
         self.per_channel_quant = per_channel_quant
         
         # Input shape: (batch, num_channels, 128) where num_channels is 3 (accel) or 6 (accel+gyro)
         
         # Stem block
         self.bn0 = nn.BatchNorm1d(num_channels)
-        self.quant = SoftsignQuant(bit_width=4, num_channels=num_channels, per_channel=per_channel_quant)
+        if self.quantization == 'softsign':
+            self.quant = SoftsignQuant(bit_width=4, num_channels=num_channels, per_channel=per_channel_quant)
+        elif self.quantization == 'gamma':
+            self.quant = GammaQuant(bit_width=4, num_channels=num_channels, per_channel=per_channel_quant)
+        else:
+            self.quant = None
+            
         self.sep_conv1 = SeparableConv1d(num_channels, 32, kernel_size=5, padding=2)
         self.bn1 = nn.BatchNorm1d(32)
         self.pool1 = nn.MaxPool1d(2)  # 31 -> 15
@@ -104,7 +179,7 @@ class SeparableConvCNN(nn.Module):
         
         # Stem
         x = self.bn0(x)
-        if self.use_quant:
+        if self.quantization != 'no' and self.quant is not None:
             x = self.quant(x)
         x = F.relu(self.sep_conv1(x))
         x = self.bn1(x)

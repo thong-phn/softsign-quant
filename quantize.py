@@ -148,36 +148,27 @@ class ExportableSeparableConvCNN(nn.Module):
 class Preprocessor:
     """
     Simulates the external preprocessing pipeline.
-    Raw Data -> BatchNorm (Normalization) -> Softsign 
+    Raw Data -> BatchNorm (Normalization) -> Base Quantization
     """
-    def __init__(self, bn_layer, k, mu, bit_width=4):
+    def __init__(self, bn_layer, quant_layer=None):
         self.bn_mean = bn_layer.running_mean.view(1, -1, 1).detach()
         self.bn_var = bn_layer.running_var.view(1, -1, 1).detach()
         self.bn_weight = bn_layer.weight.view(1, -1, 1).detach()
         self.bn_bias = bn_layer.bias.view(1, -1, 1).detach()
         self.bn_eps = bn_layer.eps
-        self.k = k
-        self.mu = mu
-        self.bit_width = bit_width
-        self.S = (2**(bit_width - 1) - 1) / 2.0
+        
+        self.quant_layer = copy.deepcopy(quant_layer) if quant_layer is not None else None
         
     def __call__(self, x):
         # Apply trained BatchNorm math
         x = (x - self.bn_mean) / torch.sqrt(self.bn_var + self.bn_eps)
         x = x * self.bn_weight + self.bn_bias
         
-        # Softsign
-        z = self.k * (x - self.mu)
-        d = 1.0 + torch.abs(z)
-        y_raw = z / d
-        y = y_raw * self.S
-        
-        max_val = 2**(self.bit_width - 1) - 1
-        min_val = - (2**(self.bit_width - 1))
-        
-        y_round = torch.round(y)
-        out = torch.clamp(y_round, min_val, max_val)
-        return out
+        # Base Quantization
+        if self.quant_layer is not None:
+            x = self.quant_layer(x)
+            
+        return x
 
 def evaluate(preprocessor, model, data_loader, device):
     """
@@ -225,14 +216,13 @@ def main():
     original_model.load_state_dict(torch.load(model_path, map_location="cpu"))
     original_model.eval()
     
-    # Extract Softsign parameters
-    k_val = original_model.quant.k.detach().clone()
-    mu_val = original_model.quant.mu.detach().clone()
-    print(f"Extracted Softsign parameters")
+    # Extract Quant parameters
+    quant_layer = original_model.quant if original_model.quantization != 'no' and original_model.quant is not None else None
+    print(f"Extracted Quantization parameters")
     
     # Bundle preprocessor
     bn0_clone = copy.deepcopy(original_model.bn0)
-    preprocessor = Preprocessor(bn0_clone, k_val, mu_val)
+    preprocessor = Preprocessor(bn0_clone, quant_layer)
     
     print("\n[STEP 2/5] Building Exportable Model (BN -> Conv replacement)")
     model = ExportableSeparableConvCNN(num_classes=6, num_channels=num_channels)

@@ -27,10 +27,10 @@ import argparse
 
 def main():
     parser = argparse.ArgumentParser(description="LOSO Training script")
-    parser.add_argument("--no-quant", action="store_true", help="Disable the Softsign Quanzation layer")
+    parser.add_argument("--quantization", type=str, choices=['no', 'softsign', 'gamma'], default='softsign', help="Quantization layer to use")
     parser.add_argument("--per-channel-quant", action="store_true", help="Use per-channel quantization")
     args = parser.parse_args()
-    use_quant = not args.no_quant
+    quantization = args.quantization
     per_channel_quant = args.per_channel_quant
 
     set_seed(42)
@@ -46,7 +46,7 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
-    print(f"Using Quantization Layer: {use_quant}")
+    print(f"Quantization Layer: {quantization}")
     print(f"Using Per-Channel Quantization: {per_channel_quant}")
     print(f"Total Training Subjects ({len(all_train_subjects)}): {all_train_subjects}")
     print(f"Fixed Test Subjects ({len(test_subjects)}): {test_subjects}")
@@ -66,7 +66,7 @@ def main():
         # Tracking init
         wandb_run = wandb.init(
             project="softsign-quant",
-            name=f"wear-loso-val-{val_subject}-quant-{use_quant}-per-channel-{per_channel_quant}",
+            name=f"wear-loso-val-{val_subject}-quant-{quantization}-per-channel-{per_channel_quant}",
             reinit=True, # Allow multiple runs in one script
             config={
                 "train_subjects": train_subjects,
@@ -76,7 +76,7 @@ def main():
                 "lr": 1e-3,
                 "batch_size": 64,
                 "model": "SeparableConvCNN",
-                "use_quant": use_quant,
+                "quantization": quantization,
                 "per_channel_quant": per_channel_quant,
                 "fold": val_subject
             },
@@ -90,9 +90,9 @@ def main():
         
         # Save model dynamically based on fold
         prefix_parts = ["wear_best_model_loso"]
-        if not use_quant:
-            prefix_parts.append("no_quant")
-        elif per_channel_quant:
+        if quantization != 'softsign':
+            prefix_parts.append(quantization)
+        if per_channel_quant:
             prefix_parts.append("per_channel")
         prefix = "_".join(prefix_parts)
         model_save_path = project_root / "models" / f"{prefix}_val_{val_subject}.pth"
@@ -114,7 +114,7 @@ def main():
             device=device,
             model_path=model_save_path,
             num_channels=num_channels,
-            use_quant=use_quant,
+            quantization=quantization,
             per_channel_quant=per_channel_quant
         )
 
@@ -149,9 +149,9 @@ def main():
     log_dir.mkdir(parents=True, exist_ok=True)
 
     log_name = "wear_loso_results"
-    if not use_quant:
-        log_name += "_no_quant"
-    elif per_channel_quant:
+    if quantization != 'softsign':
+        log_name += f"_{quantization}"
+    if per_channel_quant:
         log_name += "_per_channel"
     log_name += ".log"
     

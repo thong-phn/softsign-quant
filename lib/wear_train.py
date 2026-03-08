@@ -52,11 +52,11 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
     print(f"Using {num_channels} channels (accel only) for {num_classes} classes")
 
     # Training loop configuration
-    use_quant = train_kwargs.get('use_quant', True)
+    quantization = train_kwargs.get('quantization', 'softsign')
     per_channel_quant = train_kwargs.get('per_channel_quant', False)
     
     # We pass num_classes=num_classes down to the model if it supports it
-    model = model_class(num_channels=num_channels, num_classes=num_classes, use_quant=use_quant, per_channel_quant=per_channel_quant).to(device)
+    model = model_class(num_channels=num_channels, num_classes=num_classes, quantization=quantization, per_channel_quant=per_channel_quant).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(

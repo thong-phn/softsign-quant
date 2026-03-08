@@ -124,9 +124,9 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, wandb_run=N
     print(f"Using {num_channels} channels ({'accel + gyro' if use_gyro else 'accel only'})")
 
     # Training loop configuration
-    use_quant = train_kwargs.get('use_quant', True)
+    quantization = train_kwargs.get('quantization', 'softsign')
     per_channel_quant = train_kwargs.get('per_channel_quant', False)
-    model = model_class(num_channels=num_channels, use_quant=use_quant, per_channel_quant=per_channel_quant).to(device)
+    model = model_class(num_channels=num_channels, quantization=quantization, per_channel_quant=per_channel_quant).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(

@@ -77,10 +77,10 @@ import argparse
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate Quantized Models")
-    parser.add_argument("--no-quant", action="store_true", help="Disable the Softsign Quanzation layer")
+    parser.add_argument("--quantization", type=str, choices=['no', 'softsign', 'gamma'], default='softsign', help="Quantization layer to use")
     parser.add_argument("--per-channel-quant", action="store_true", help="Use per-channel quantization models")
     args = parser.parse_args()
-    use_quant = not args.no_quant
+    quantization = args.quantization
     per_channel_quant = args.per_channel_quant
 
     set_seed(42)
@@ -116,9 +116,9 @@ def main():
         train_subjects = [s for s in all_train_subjects if s != val_subject]
         
         prefix_parts = ["best_model_loso"]
-        if not use_quant:
-            prefix_parts.append("no_quant")
-        elif per_channel_quant:
+        if quantization != 'softsign':
+            prefix_parts.append(quantization)
+        if per_channel_quant:
             prefix_parts.append("per_channel")
         prefix = "_".join(prefix_parts)
         
@@ -133,20 +133,15 @@ def main():
             continue
 
         # 1. Load Original Model
-        original_model = SeparableConvCNN(num_classes=6, num_channels=num_channels, use_quant=use_quant, per_channel_quant=per_channel_quant)
+        original_model = SeparableConvCNN(num_classes=6, num_channels=num_channels, quantization=quantization, per_channel_quant=per_channel_quant)
         original_model.load_state_dict(torch.load(model_path, map_location="cpu"))
         original_model.eval()
 
-        if use_quant:
-            k_val = original_model.quant.k.detach().clone()
-            mu_val = original_model.quant.mu.detach().clone()
-        else:
-            k_val = None
-            mu_val = None
+        quant_layer = original_model.quant if quantization != 'no' and original_model.quant is not None else None
         
         # 2. Build Preprocessor and Exportable Skeleton
         bn0_clone = copy.deepcopy(original_model.bn0)
-        preprocessor = Preprocessor(bn0_clone, k_val, mu_val) if use_quant else bn0_clone
+        preprocessor = Preprocessor(bn0_clone, quant_layer)
 
         exportable_model = ExportableSeparableConvCNN(num_classes=6, num_channels=num_channels)
         model_state = exportable_model.state_dict()
