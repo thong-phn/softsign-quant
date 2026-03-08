@@ -236,7 +236,11 @@ def main():
     print(f"Quantized INT8 Test Accuracy (Across {len(fold_results)} folds): {mean_int8_acc:.2f}% ± {std_int8_acc:.2f}%")
     print(f"Quantized INT8 Test F1-Macro (Across {len(fold_results)} folds): {mean_int8_f1:.2f}% ± {std_int8_f1:.2f}%")
 
-    with open("quantize_loso_results.log", "w") as f:
+    log_dir = project_root / "log"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "quantize_loso_results.log"
+
+    with open(log_path, "w") as f:
         f.write(f"Baseline F32 Test Accuracy: {mean_f32:.2f}% +- {std_f32:.2f}%\n")
         f.write(f"Quantized INT8 Test Accuracy: {mean_int8_acc:.2f}% +- {std_int8_acc:.2f}%\n")
         f.write(f"Quantized INT8 Test F1-Macro: {mean_int8_f1:.2f}% +- {std_int8_f1:.2f}%\n\n")

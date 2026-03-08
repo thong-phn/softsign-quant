@@ -143,14 +143,19 @@ def main():
     print(f"Average Test Accuracy: {avg_test_acc:.2f}% ± {std_test_acc:.2f}%")
     print(f"Average Test F1-Macro: {avg_test_f1:.2f}% ± {std_test_f1:.2f}%")
     
-    # Save a log file inside current directory
+    # Save a log file inside log directory
+    log_dir = project_root / "log"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
     log_name = "loso_results"
     if not use_quant:
         log_name += "_no_quant"
     elif per_channel_quant:
         log_name += "_per_channel"
     log_name += ".log"
-    with open(log_name, "w") as f:
+    
+    log_path = log_dir / log_name
+    with open(log_path, "w") as f:
         f.write(f"Average Test Accuracy: {avg_test_acc:.2f}% ± {std_test_acc:.2f}%\n")
         f.write(f"Average Test F1-Macro: {avg_test_f1:.2f}% ± {std_test_f1:.2f}%\n\n")
         f.write("Detailed Fold Results:\n")
