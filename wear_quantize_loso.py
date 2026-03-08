@@ -10,7 +10,7 @@ For each fold:
 """
 import torch
 import torch.nn as nn
-import torch.ao.quantization as quantization
+import torch.ao.quantization as ao_quantization
 from torch.utils.data import DataLoader
 from sklearn.metrics import f1_score
 from pathlib import Path
@@ -166,7 +166,7 @@ def main():
 
         # 4. Trigger PTQ Compiler
         torch.backends.quantized.engine = 'qnnpack'
-        exportable_model.qconfig = quantization.get_default_qconfig('qnnpack')
+        exportable_model.qconfig = ao_quantization.get_default_qconfig('qnnpack')
 
         torch.ao.quantization.fuse_modules(exportable_model, [
             ['sep_conv1.pointwise', 'relu1'], 
@@ -176,14 +176,14 @@ def main():
             ['fc1', 'relu5'],
         ], inplace=True) 
 
-        quantization.prepare(exportable_model, inplace=True)
+        ao_quantization.prepare(exportable_model, inplace=True)
 
         with torch.no_grad():
             for inputs, _ in calib_loader:
                 pre_processed = preprocessor(inputs)
                 exportable_model(pre_processed) 
 
-        quantized_model = quantization.convert(exportable_model, inplace=True)
+        quantized_model = ao_quantization.convert(exportable_model, inplace=True)
 
         # 5. Native INT8 Benchmarks
         q_metrics = evaluate_quantized(preprocessor, quantized_model, test_loader, device=device)
