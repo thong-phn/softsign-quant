@@ -27,7 +27,7 @@ import argparse
 
 def main():
     parser = argparse.ArgumentParser(description="LOSO Training script")
-    parser.add_argument("--quantization", type=str, choices=['no', 'softsign', 'gamma'], default='softsign', help="Quantization layer to use")
+    parser.add_argument("--quantization", type=str, choices=['no', 'softsign', 'gamma', 'linear'], default='softsign', help="Quantization layer to use")
     parser.add_argument("--per-channel-quant", action="store_true", help="Use per-channel quantization")
     args = parser.parse_args()
     quantization = args.quantization
@@ -149,8 +149,8 @@ def main():
     log_dir.mkdir(parents=True, exist_ok=True)
 
     log_name = "wear_loso_results"
-    if quantization != 'softsign':
-        log_name += f"_{quantization}"
+    # if quantization != 'softsign':
+    log_name += f"_{quantization}"
     if per_channel_quant:
         log_name += "_per_channel"
     log_name += ".log"

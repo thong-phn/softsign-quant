@@ -77,7 +77,7 @@ import argparse
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate Quantized Models")
-    parser.add_argument("--quantization", type=str, choices=['no', 'softsign', 'gamma'], default='softsign', help="Quantization layer to use")
+    parser.add_argument("--quantization", type=str, choices=['no', 'softsign', 'gamma', 'linear'], default='softsign', help="Quantization layer to use")
     parser.add_argument("--per-channel-quant", action="store_true", help="Use per-channel quantization models")
     args = parser.parse_args()
     quantization = args.quantization

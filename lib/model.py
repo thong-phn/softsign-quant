@@ -110,6 +110,40 @@ class GammaQuant(nn.Module):
         x = self.quantizer(x)
         return x
 
+class LinearQuant(nn.Module):
+    """
+    Learnable Linear Quantization.
+    """
+    def __init__(self, bit_width=4, k_init=1.0, mu_init=0.0, num_channels=1, per_channel=False):
+        super(LinearQuant, self).__init__()
+        self.bit_width = bit_width
+        self.per_channel = per_channel
+        
+        # Learnable parameters
+        if per_channel:
+            self.k = nn.Parameter(torch.full((1, num_channels, 1), k_init, dtype=torch.float32))
+            self.mu = nn.Parameter(torch.full((1, num_channels, 1), mu_init, dtype=torch.float32))
+        else:
+            self.k = nn.Parameter(torch.tensor(k_init, dtype=torch.float32))
+            self.mu = nn.Parameter(torch.tensor(mu_init, dtype=torch.float32))
+            
+    def forward(self, x):
+        # Linear transform
+        y = self.k * (x - self.mu)
+        
+        # Hardware clamp 
+        max_val = 2**(self.bit_width - 1) - 1
+        min_val = - (2**(self.bit_width - 1))
+        
+        # Straight-through estimator for rounding and clamping
+        y_round = torch.round(y)
+        y_clamp = torch.clamp(y_round, min_val, max_val)
+        
+        # Detach gradient for rounding/clamping, but keep for y
+        out = (y_clamp - y).detach() + y
+        
+        return out
+
 class SeparableConv1d(nn.Module):
     """Depthwise Separable Convolution (Depthwise + Pointwise)"""
     def __init__(self, in_channels, out_channels, kernel_size, padding=0):
@@ -146,6 +180,8 @@ class SeparableConvCNN(nn.Module):
             self.quant = SoftsignQuant(bit_width=4, num_channels=num_channels, per_channel=per_channel_quant)
         elif self.quantization == 'gamma':
             self.quant = GammaQuant(bit_width=4, num_channels=num_channels, per_channel=per_channel_quant)
+        elif self.quantization == 'linear':
+            self.quant = LinearQuant(bit_width=4, num_channels=num_channels, per_channel=per_channel_quant)
         else:
             self.quant = None
             
