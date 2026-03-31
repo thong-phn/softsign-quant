@@ -1,6 +1,7 @@
 # Wandb
 wandb/
 models/
+visualization/
 
 # Dataset
 uci-har/

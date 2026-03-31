@@ -249,15 +249,54 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, wandb_run=N
     print(f"Best Val Acc: {best_val_accuracy:.2f}% at Epoch {best_epoch}")
     print(f"Test Loss: {test_loss:.4f} | Test Acc: {test_acc:.2f}% | Test F1 (Macro): {test_f1:.2f}%")
 
+    # Extract quantization parameters from best model
+    quant_params = {}
+    if hasattr(model, 'quant') and model.quant is not None:
+        quant_layer = model.quant
+        quantization = train_kwargs.get('quantization', 'softsign')
+        
+        if quantization == 'softsign' or quantization == 'linear':
+            # For SoftsignQuant and LinearQuant: extract k and mu
+            k_param = quant_layer.k.detach().cpu()
+            mu_param = quant_layer.mu.detach().cpu()
+            
+            # Handle both per-channel and non-per-channel cases
+            if k_param.dim() > 0 and k_param.numel() > 1:
+                # Per-channel: flatten and convert to list
+                quant_params[f"{quantization}_k"] = k_param.flatten().tolist()
+                quant_params[f"{quantization}_mu"] = mu_param.flatten().tolist()
+            else:
+                # Single value
+                quant_params[f"{quantization}_k"] = float(k_param.item())
+                quant_params[f"{quantization}_mu"] = float(mu_param.item())
+                
+        elif quantization == 'gamma':
+            # For GammaQuant: extract gamma and offset (mu)
+            gamma_param = quant_layer.gamma_func.gamma.detach().cpu()
+            offset_param = quant_layer.gamma_func.offset.detach().cpu()
+            
+            # Handle both per-channel and non-per-channel cases
+            if gamma_param.dim() > 0 and gamma_param.numel() > 1:
+                # Per-channel: flatten and convert to list
+                quant_params["gamma_gamma"] = gamma_param.flatten().tolist()
+                quant_params["gamma_mu"] = offset_param.flatten().tolist()
+            else:
+                # Single value
+                quant_params["gamma_gamma"] = float(gamma_param.item())
+                quant_params["gamma_mu"] = float(offset_param.item())
+
     if wandb_run is not None: # tracking
-        wandb_run.log({
+        summary_dict = {
             "best_val_loss": best_val_loss,
             "best_val_acc": best_val_accuracy,
             "best_epoch": best_epoch,
             "test_loss": test_loss,
             "test_acc": test_acc,
             "test_f1_macro": test_f1,
-        })
+        }
+        # Add quantization parameters to summary
+        summary_dict.update(quant_params)
+        wandb_run.log(summary_dict)
 
     return {
         "best_val_loss": best_val_loss,

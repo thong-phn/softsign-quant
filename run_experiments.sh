@@ -4,7 +4,6 @@
 # -----------------------------------------------------------------------------
 
 set -e # Exit immediately if a command exits with a non-zero status
-source .venv-litert-torch/bin/activate || echo "Warning: Virtual environment not activated. Ensure dependencies are met."
 
 # Define arrays for parameters
 DATASETS=("uci-har" "wear")
