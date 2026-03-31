@@ -175,7 +175,7 @@ class SeparableConvCNN(nn.Module):
         # Input shape: (batch, num_channels, 128) where num_channels is 3 (accel) or 6 (accel+gyro)
         
         # Stem block
-        self.bn0 = nn.BatchNorm1d(num_channels)
+        # self.bn0 = nn.BatchNorm1d(num_channels)
         if self.quantization == 'softsign':
             self.quant = SoftsignQuant(bit_width=4, num_channels=num_channels, per_channel=per_channel_quant)
         elif self.quantization == 'gamma':
@@ -214,7 +214,7 @@ class SeparableConvCNN(nn.Module):
         # x: (batch, num_channels, 128)
         
         # Stem
-        x = self.bn0(x)
+        # x = self.bn0(x)
         if self.quantization != 'no' and self.quant is not None:
             x = self.quant(x)
         x = F.relu(self.sep_conv1(x))

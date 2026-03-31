@@ -19,16 +19,13 @@ LABEL_MAP = {
     'jogging (skipping)': 0,
     'jogging (butt-kicks)': 0,
     'jogging (rotating arms)': 0,
-    
     'stretching (lunging)': 1,
     'stretching (hamstrings)': 1,
     'stretching (triceps)': 1,
     'stretching (shoulders)': 1,
     'stretching (lumbar rotation)': 1,
-    
     'lunges': 2,
     'lunges (complex)': 2,
-    
     'sit-ups': 3,
     'sit-ups (complex)': 3,
     

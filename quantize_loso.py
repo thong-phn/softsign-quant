@@ -140,8 +140,7 @@ def main():
         quant_layer = original_model.quant if quantization != 'no' and original_model.quant is not None else None
         
         # 2. Build Preprocessor and Exportable Skeleton
-        bn0_clone = copy.deepcopy(original_model.bn0)
-        preprocessor = Preprocessor(bn0_clone, quant_layer)
+        preprocessor = Preprocessor(quant_layer=quant_layer)
 
         exportable_model = ExportableSeparableConvCNN(num_classes=6, num_channels=num_channels)
         model_state = exportable_model.state_dict()

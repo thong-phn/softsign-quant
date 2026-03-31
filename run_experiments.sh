@@ -60,6 +60,5 @@ for DATASET in "${DATASETS[@]}"; do
 done
 
 echo "================================================="
-echo "All experiments completed successfully!"
-echo "Check the 'log/' directory for the detailed results."
+echo "DONE"
 echo "================================================="

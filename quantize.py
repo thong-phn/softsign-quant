@@ -148,21 +148,25 @@ class ExportableSeparableConvCNN(nn.Module):
 class Preprocessor:
     """
     Simulates the external preprocessing pipeline.
-    Raw Data -> BatchNorm (Normalization) -> Base Quantization
+    Raw Data -> (optional BatchNorm Normalization) -> (optional Base Quantization)
     """
-    def __init__(self, bn_layer, quant_layer=None):
-        self.bn_mean = bn_layer.running_mean.view(1, -1, 1).detach()
-        self.bn_var = bn_layer.running_var.view(1, -1, 1).detach()
-        self.bn_weight = bn_layer.weight.view(1, -1, 1).detach()
-        self.bn_bias = bn_layer.bias.view(1, -1, 1).detach()
-        self.bn_eps = bn_layer.eps
+    def __init__(self, bn_layer=None, quant_layer=None):
+        if bn_layer is not None:
+            self.bn_mean = bn_layer.running_mean.view(1, -1, 1).detach()
+            self.bn_var = bn_layer.running_var.view(1, -1, 1).detach()
+            self.bn_weight = bn_layer.weight.view(1, -1, 1).detach()
+            self.bn_bias = bn_layer.bias.view(1, -1, 1).detach()
+            self.bn_eps = bn_layer.eps
+        else:
+            self.bn_mean = None
         
         self.quant_layer = copy.deepcopy(quant_layer) if quant_layer is not None else None
         
     def __call__(self, x):
-        # Apply trained BatchNorm math
-        x = (x - self.bn_mean) / torch.sqrt(self.bn_var + self.bn_eps)
-        x = x * self.bn_weight + self.bn_bias
+        # Apply trained BatchNorm math (if present)
+        if self.bn_mean is not None:
+            x = (x - self.bn_mean) / torch.sqrt(self.bn_var + self.bn_eps)
+            x = x * self.bn_weight + self.bn_bias
         
         # Base Quantization
         if self.quant_layer is not None:
