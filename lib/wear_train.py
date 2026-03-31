@@ -130,9 +130,19 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
         print(f'Epoch [{epoch+1}/{epochs}]: '
               f'Train Loss: {train_loss:.4f}; Train Acc: {train_acc:.2f}; '
               f'Val Loss: {val_loss:.4f}; Val Acc: {val_acc:.2f}')
+
+        if hasattr(model, 'quant') and model.quant is not None and quantization in ('softsign', 'linear'):
+            k_param = model.quant.k.detach().cpu()
+            mu_param = model.quant.mu.detach().cpu()
+            if k_param.numel() > 1:
+                k_vals = [float(v) for v in k_param.flatten().tolist()]
+                mu_vals = [float(v) for v in mu_param.flatten().tolist()]
+                print(f"  [{quantization}] epoch params | k={k_vals} | mu={mu_vals}")
+            else:
+                print(f"  [{quantization}] epoch params | k={float(k_param.item()):.6f} | mu={float(mu_param.item()):.6f}")
         
         if wandb_run is not None: # tracking
-            wandb_run.log({
+            epoch_log = {
                 "epoch": epoch + 1,
                 "train_loss": train_loss,
                 "train_acc": train_acc,
@@ -141,7 +151,24 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
                 "best_val_loss": best_val_loss,
                 "lr": optimizer.param_groups[0]["lr"],  # actual LR
                 # "epochs_no_improve": epochs_no_improve, # early stopping
-            })
+            }
+
+            if hasattr(model, 'quant') and model.quant is not None and quantization in ('softsign', 'linear'):
+                k_param = model.quant.k.detach().cpu()
+                mu_param = model.quant.mu.detach().cpu()
+                if k_param.numel() > 1:
+                    k_flat = [float(v) for v in k_param.flatten().tolist()]
+                    mu_flat = [float(v) for v in mu_param.flatten().tolist()]
+                    epoch_log[f"{quantization}_k_mean"] = float(np.mean(k_flat))
+                    epoch_log[f"{quantization}_mu_mean"] = float(np.mean(mu_flat))
+                    for idx, (k_val, mu_val) in enumerate(zip(k_flat, mu_flat)):
+                        epoch_log[f"{quantization}_k_ch{idx}"] = k_val
+                        epoch_log[f"{quantization}_mu_ch{idx}"] = mu_val
+                else:
+                    epoch_log[f"{quantization}_k"] = float(k_param.item())
+                    epoch_log[f"{quantization}_mu"] = float(mu_param.item())
+
+            wandb_run.log(epoch_log)
 
         if epochs_no_improve >= patience: # early stopping
             print(f"Early Stopping: Epoch [{epoch+1}/{epochs}] (patience={patience}, min_delta={min_delta}).")
@@ -199,6 +226,8 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
                 # Single value
                 quant_params[f"{quantization}_k"] = float(k_param.item())
                 quant_params[f"{quantization}_mu"] = float(mu_param.item())
+
+            print(f"Best epoch quant params [{quantization}] | k={quant_params[f'{quantization}_k']} | mu={quant_params[f'{quantization}_mu']}")
                 
         elif quantization == 'gamma':
             # For GammaQuant: extract gamma and offset (mu)

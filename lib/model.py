@@ -30,7 +30,8 @@ class SoftsignQuant(nn.Module):
         # Stage 2: Scale to [-1, 1] using max_val at the boundary
         # max_val = k / (1 + k) is the maximum of softsign at the boundary
         max_val = self.k / (1.0 + self.k)
-        x_softsign = raw_softsign / max_val
+        max_val_safe = torch.clamp(torch.abs(max_val), min=1e-6)
+        x_softsign = raw_softsign / max_val_safe
         
         # Clip to [-1, 1] for safety (handle floating point errors)
         x_softsign = torch.clamp(x_softsign, -1.0, 1.0)
@@ -45,8 +46,8 @@ class SoftsignQuant(nn.Module):
         # Clamp to valid range (for safety)
         x_quant = torch.clamp(x_quant, 0, self.n_levels - 1)
         
-        # Straight-through estimator: use quantized value in forward, but pass gradients through x_scaled
-        out = x_quant + (x_scaled - x_quant).detach()
+        # Straight-through estimator: forward uses quantized value, backward uses x_scaled gradient
+        out = x_scaled + (x_quant - x_scaled).detach()
         
         return out
 
