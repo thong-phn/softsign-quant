@@ -5,12 +5,12 @@ import torch.nn.functional as F
 
 class SoftsignQuant(nn.Module):
     """
-    Learnable Softsign-based Quantization.
+    Learnable Softsign-based Quantization with normalization and quantization to [0, 2**b - 1].
     """
     def __init__(self, bit_width=4, k_init=1.0, mu_init=0.0, num_channels=1, per_channel=False):
         super(SoftsignQuant, self).__init__()
         self.bit_width = bit_width
-        self.S = (2**(bit_width - 1) - 1) / 2.0
+        self.n_levels = 2 ** bit_width
         self.per_channel = per_channel
         
         # Learnable parameters
@@ -22,22 +22,31 @@ class SoftsignQuant(nn.Module):
             self.mu = nn.Parameter(torch.tensor(mu_init, dtype=torch.float32))
         
     def forward(self, x):
-        # Softsign calculation (forward pass)
+        # Stage 1: Compute raw softsign
         z = self.k * (x - self.mu)
         d = 1.0 + torch.abs(z)
-        y_raw = z / d
-        y = y_raw * self.S
+        raw_softsign = z / d
         
-        # Hardware clamp 
-        max_val = 2**(self.bit_width - 1) - 1
-        min_val = - (2**(self.bit_width - 1))
+        # Stage 2: Scale to [-1, 1] using max_val at the boundary
+        # max_val = k / (1 + k) is the maximum of softsign at the boundary
+        max_val = self.k / (1.0 + self.k)
+        x_softsign = raw_softsign / max_val
         
-        # Straight-through estimator for rounding and clamping
-        y_round = torch.round(y)
-        y_clamp = torch.clamp(y_round, min_val, max_val)
+        # Clip to [-1, 1] for safety (handle floating point errors)
+        x_softsign = torch.clamp(x_softsign, -1.0, 1.0)
         
-        # Detach gradient for rounding/clamping, but keep for y
-        out = (y_clamp - y).detach() + y
+        # Stage 3: Normalize softsign output to [0, 1]
+        x_normalized = (x_softsign + 1.0) / 2.0
+        
+        # Stage 4: Quantization to [0, 2**b - 1]
+        x_scaled = x_normalized * (self.n_levels - 1)
+        x_quant = torch.round(x_scaled)
+        
+        # Clamp to valid range (for safety)
+        x_quant = torch.clamp(x_quant, 0, self.n_levels - 1)
+        
+        # Straight-through estimator: use quantized value in forward, but pass gradients through x_scaled
+        out = x_quant + (x_scaled - x_quant).detach()
         
         return out
 
