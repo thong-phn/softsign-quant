@@ -68,7 +68,7 @@ def main():
         # Tracking init
         wandb_run = wandb.init(
             project="softsign-quant",
-            name=f"loso-val-{val_subject}-quant-{quantization}-per-channel-{per_channel_quant}",
+            name=f"loso-val-{val_subject}-quant-[newss]{quantization}-per-channel-{per_channel_quant}",
             reinit=True, # Allow multiple runs in one script
             config={
                 "train_subjects": train_subjects,
@@ -152,7 +152,7 @@ def main():
     log_name += f"_{quantization}"
     if per_channel_quant:
         log_name += "_per_channel"
-    log_name += ".log"
+    log_name += "_shared_channel.log"
     
     log_path = log_dir / log_name
     with open(log_path, "w") as f:

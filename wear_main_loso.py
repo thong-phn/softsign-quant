@@ -66,7 +66,7 @@ def main():
         # Tracking init
         wandb_run = wandb.init(
             project="softsign-quant",
-            name=f"wear-loso-val-{val_subject}-quant-{quantization}-per-channel-{per_channel_quant}",
+            name=f"wear-loso-val-{val_subject}-quant-[newss]{quantization}-per-channel-{per_channel_quant}",
             reinit=True, # Allow multiple runs in one script
             config={
                 "train_subjects": train_subjects,
