@@ -25,6 +25,32 @@ from lib.model import SeparableConvCNN
 from lib.wear_data import WearDataset
 from quantize import Preprocessor, ExportableSeparableConvCNN, make_conv1d_from_bn, set_seed
 
+
+def build_stratified_round_robin_indices(labels, seed=42):
+    """
+    Build a stratified traversal order using all samples.
+    Samples from each class are shuffled, then interleaved round-robin
+    so calibration batches are less class-imbalanced.
+    """
+    labels = np.asarray(labels)
+    rng = np.random.default_rng(seed)
+
+    class_ids = sorted(np.unique(labels).tolist())
+    per_class_indices = []
+    for class_id in class_ids:
+        idx = np.where(labels == class_id)[0]
+        rng.shuffle(idx)
+        per_class_indices.append(idx.tolist())
+
+    ordered_indices = []
+    max_len = max(len(v) for v in per_class_indices)
+    for i in range(max_len):
+        for class_list in per_class_indices:
+            if i < len(class_list):
+                ordered_indices.append(class_list[i])
+
+    return ordered_indices
+
 def evaluate_quantized(preprocessor, model, data_loader, device):
     """
     Evaluates the trained Quantizer -> SeparableConvCNN pipeline.
@@ -60,18 +86,28 @@ def evaluate_quantized(preprocessor, model, data_loader, device):
 def evaluate_baseline_f32(model, data_loader, device):
     """
     Evaluates original Float32 Native Model.
+    Returns Dictionary of Metrics (Accuracy, F1-Macro).
     """
     model.eval()
     correct = 0
     total = 0
+    all_preds = []
+    all_labels = []
     with torch.no_grad():
         for inputs, labels in data_loader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
             _, predicted = outputs.max(1)
-            total += labels.size(0)
+            bs = labels.size(0)
+            total += bs
             correct += predicted.eq(labels).sum().item()
-    return 100. * correct / max(total, 1)
+
+            all_preds.extend(predicted.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
+    accuracy = 100. * correct / max(total, 1)
+    f1_macro = f1_score(all_labels, all_preds, average='macro') * 100.0
+    return {"accuracy": accuracy, "f1_macro": f1_macro}
 
 import argparse
 
@@ -101,10 +137,6 @@ def main():
     
     # Store aggregated validation statistics
     fold_results = []
-    
-    # Generator for reproducible DataLoader shuffling inside Calibration
-    g = torch.Generator()
-    g.manual_seed(42)
 
     # Global Test Dataset (constant through all formulations)
     test_dataset = WearDataset(root_path, subject_ids=test_eval_subjects)
@@ -156,16 +188,30 @@ def main():
         exportable_model.eval()
 
         # 3. Calibration Dataloader Construction
-        calib_subjects = train_subjects[:3] 
+        calib_subjects = train_subjects
         calib_dataset = WearDataset(root_path, subject_ids=calib_subjects)
-        calib_loader = DataLoader(calib_dataset, batch_size=64, shuffle=True, generator=g)
+        stratified_indices = build_stratified_round_robin_indices(calib_dataset.labels, seed=42)
+        calib_loader = DataLoader(
+            calib_dataset,
+            batch_size=64,
+            shuffle=False,
+            sampler=stratified_indices,
+        )
 
         # Baseline check before PTQ destruction
-        acc_orig_f32 = evaluate_baseline_f32(original_model, test_loader, device=device)
+        baseline_metrics = evaluate_baseline_f32(original_model, test_loader, device=device)
+        acc_orig_f32 = baseline_metrics['accuracy']
+        f1_orig_f32 = baseline_metrics['f1_macro']
 
         # 4. Trigger PTQ Compiler
-        torch.backends.quantized.engine = 'qnnpack'
-        exportable_model.qconfig = ao_quantization.get_default_qconfig('qnnpack')
+        preferred_engine = 'fbgemm'
+        if preferred_engine not in torch.backends.quantized.supported_engines:
+            fallback_engine = torch.backends.quantized.supported_engines[0]
+            print(f"WARNING: '{preferred_engine}' not supported. Falling back to '{fallback_engine}'.")
+            preferred_engine = fallback_engine
+
+        torch.backends.quantized.engine = preferred_engine
+        exportable_model.qconfig = ao_quantization.get_default_qconfig(preferred_engine)
 
         torch.ao.quantization.fuse_modules(exportable_model, [
             ['sep_conv1.pointwise', 'relu1'], 
@@ -188,22 +234,30 @@ def main():
         q_metrics = evaluate_quantized(preprocessor, quantized_model, test_loader, device=device)
         q_acc = q_metrics['accuracy']
         q_f1 = q_metrics['f1_macro']
+        acc_abs_drop = acc_orig_f32 - q_acc
+        f1_abs_drop = f1_orig_f32 - q_f1
 
         print(f" -> Baseline (F32) Test Acc : {acc_orig_f32:.2f}%")
-        print(f" -> Quantized (INT8) Test Acc: {q_acc:.2f}%  |  Absolute Drop: {(acc_orig_f32 - q_acc):.2f}%")
-        print(f" -> Quantized (INT8) Test F1 : {q_f1:.2f}%")
+        print(f" -> Baseline (F32) Test F1  : {f1_orig_f32:.2f}%")
+        print(f" -> Quantized (INT8) Test Acc: {q_acc:.2f}%  |  Absolute Drop: {acc_abs_drop:.2f}%")
+        print(f" -> Quantized (INT8) Test F1 : {q_f1:.2f}%  |  Absolute Drop: {f1_abs_drop:.2f}%")
 
         fold_results.append({
             'val_subject': val_subject,
             'acc_f32': acc_orig_f32,
+            'f1_f32': f1_orig_f32,
             'acc_int8': q_acc,
-            'f1_int8': q_f1
+            'f1_int8': q_f1,
+            'acc_abs_drop': acc_abs_drop,
+            'f1_abs_drop': f1_abs_drop,
         })
         
         # Save quantized model locally to disc based on fold ID
         out_prefix = "best_model_ptq_int8"
         if per_channel_quant:
             out_prefix += "_per_channel"
+        else:
+            out_prefix += "_shared_channel"
             
         torch.save(quantized_model.state_dict(), project_root / "models" / f"{out_prefix}_val_{val_subject}.pth")
 
@@ -219,14 +273,20 @@ def main():
     acc_f32_list = [res['acc_f32'] for res in fold_results]
     acc_int8_list = [res['acc_int8'] for res in fold_results]
     f1_int8_list = [res['f1_int8'] for res in fold_results]
+    f1_f32_list = [res['f1_f32'] for res in fold_results]
+    f1_abs_drop_list = [res['f1_abs_drop'] for res in fold_results]
 
     mean_f32, std_f32 = np.mean(acc_f32_list), np.std(acc_f32_list)
     mean_int8_acc, std_int8_acc = np.mean(acc_int8_list), np.std(acc_int8_list)
     mean_int8_f1, std_int8_f1 = np.mean(f1_int8_list), np.std(f1_int8_list)
+    mean_f32_f1, std_f32_f1 = np.mean(f1_f32_list), np.std(f1_f32_list)
+    mean_f1_abs_drop, std_f1_abs_drop = np.mean(f1_abs_drop_list), np.std(f1_abs_drop_list)
 
     print(f"Baseline F32 Test Accuracy (Across {len(fold_results)} folds) : {mean_f32:.2f}% ± {std_f32:.2f}%")
+    print(f"Baseline F32 Test F1-Macro (Across {len(fold_results)} folds): {mean_f32_f1:.2f}% ± {std_f32_f1:.2f}%")
     print(f"Quantized INT8 Test Accuracy (Across {len(fold_results)} folds): {mean_int8_acc:.2f}% ± {std_int8_acc:.2f}%")
     print(f"Quantized INT8 Test F1-Macro (Across {len(fold_results)} folds): {mean_int8_f1:.2f}% ± {std_int8_f1:.2f}%")
+    print(f"Absolute F1 Drop (Across {len(fold_results)} folds): {mean_f1_abs_drop:.2f}% ± {std_f1_abs_drop:.2f}%")
 
     log_dir = project_root / "log"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -241,11 +301,20 @@ def main():
 
     with open(log_path, "w") as f:
         f.write(f"Baseline F32 Test Accuracy: {mean_f32:.2f}% +- {std_f32:.2f}%\n")
+        f.write(f"Baseline F32 Test F1-Macro: {mean_f32_f1:.2f}% +- {std_f32_f1:.2f}%\n")
         f.write(f"Quantized INT8 Test Accuracy: {mean_int8_acc:.2f}% +- {std_int8_acc:.2f}%\n")
         f.write(f"Quantized INT8 Test F1-Macro: {mean_int8_f1:.2f}% +- {std_int8_f1:.2f}%\n\n")
+        f.write(f"Absolute F1 Drop: {mean_f1_abs_drop:.2f}% +- {std_f1_abs_drop:.2f}%\n\n")
         f.write("Detailed Fold Results:\n")
         for res in fold_results:
-            f.write(f"Fold Val {res['val_subject']}: F32 Acc = {res['acc_f32']:.2f}%, INT8 Acc = {res['acc_int8']:.2f}%, INT8 F1 = {res['f1_int8']:.2f}%\n")
+            f.write(
+                f"Fold Val {res['val_subject']}: "
+                f"F32 Acc = {res['acc_f32']:.2f}%, "
+                f"F32 F1 = {res['f1_f32']:.2f}%, "
+                f"INT8 Acc = {res['acc_int8']:.2f}%, "
+                f"INT8 F1 = {res['f1_int8']:.2f}%, "
+                f"F1 Abs Drop = {res['f1_abs_drop']:.2f}%\n"
+            )
 
 if __name__ == "__main__":
     main()

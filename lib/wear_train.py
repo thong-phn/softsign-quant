@@ -260,10 +260,12 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
     return {
         "best_val_loss": best_val_loss,
         "best_val_accuracy": best_val_accuracy,
+        "best_epoch": best_epoch,
         "test_loss": test_loss,
         "test_accuracy": test_acc,
         "test_f1_macro": test_f1,
         "model_path": str(model_path),
+        **quant_params,
     }
 
 

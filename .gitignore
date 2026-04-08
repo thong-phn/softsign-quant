@@ -1,7 +1,11 @@
-# Wandb
+# Saved weights, logs, wandb
 wandb/
 models/
+# !models/uci/**
+# !models/wear/**
 visualization/
+log/
+backup_log/
 
 # Dataset
 uci-har/

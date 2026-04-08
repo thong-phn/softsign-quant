@@ -29,6 +29,8 @@ def main():
     parser = argparse.ArgumentParser(description="LOSO Training script")
     parser.add_argument("--quantization", type=str, choices=['no', 'softsign', 'gamma', 'linear'], default='softsign', help="Quantization layer to use")
     parser.add_argument("--per-channel-quant", action="store_true", help="Use per-channel quantization")
+    parser.add_argument("--run_name", type=str)
+    parser.add_argument("--no-wandb", action="store_true", help="Disable Weights & Biases tracking.")
     args = parser.parse_args()
     quantization = args.quantization
     per_channel_quant = args.per_channel_quant
@@ -66,35 +68,36 @@ def main():
         print(f"{'='*50}")
 
         # Tracking init
-        wandb_run = wandb.init(
-            project="softsign-quant",
-            name=f"loso-val-{val_subject}-quant-[newss]{quantization}-per-channel-{per_channel_quant}",
-            reinit=True, # Allow multiple runs in one script
-            config={
-                "train_subjects": train_subjects,
-                "val_subjects": val_subjects,
-                "test_subjects": test_subjects,
-                "epochs": 60,
-                "lr": 1e-3,
-                "batch_size": 64,
-                "model": "SeparableConvCNN",
-                "use_gyro": True,
-                "quantization": quantization,
-                "per_channel_quant": per_channel_quant,
-                "fold": val_subject
-            },
-        )
-        
-        # Log code version
-        wandb_run.log_code(
-            root=str(project_root),
-            include_fn=lambda p: p.endswith((".py", ".yaml", ".yml", ".md"))
-        )
+        wandb_run = None
+        if not args.no_wandb:
+            wandb_run = wandb.init(
+                project="softsign-quant",
+                name=f"loso-val-{val_subject}-quant:{quantization}-per-channel:{per_channel_quant}-{args.run_name}",
+                reinit=True,
+                config={
+                    "train_subjects": train_subjects,
+                    "val_subjects": val_subjects,
+                    "test_subjects": test_subjects,
+                    "epochs": 60,
+                    "lr": 1e-3,
+                    "batch_size": 64,
+                    "model": "SeparableConvCNN",
+                    "use_gyro": True,
+                    "quantization": quantization,
+                    "per_channel_quant": per_channel_quant,
+                    "fold": val_subject
+                },
+            )
+
+            # Log code version
+            wandb_run.log_code(
+                root=str(project_root),
+                include_fn=lambda p: p.endswith((".py", ".yaml", ".yml", ".md"))
+            )
         
         # Save model dynamically based on fold
         prefix_parts = ["best_model_loso"]
-        if quantization != 'softsign':
-            prefix_parts.append(quantization)
+        prefix_parts.append(quantization)
         if per_channel_quant:
             prefix_parts.append("per_channel")
         prefix = "_".join(prefix_parts)
@@ -114,7 +117,7 @@ def main():
             device=device,
             model_path=model_save_path,
             quantization=quantization,
-            per_channel_quant=per_channel_quant
+            per_channel_quant=per_channel_quant,
         )
 
         print(f"\nFinal metrics for Fold (Val {val_subject}):")
@@ -152,7 +155,7 @@ def main():
     log_name += f"_{quantization}"
     if per_channel_quant:
         log_name += "_per_channel"
-    log_name += "_shared_channel.log"
+    log_name += f"_{args.run_name}.txt"
     
     log_path = log_dir / log_name
     with open(log_path, "w") as f:
@@ -162,8 +165,26 @@ def main():
         for res in fold_results:
             t_acc = res['metrics'].get('test_accuracy', 0)
             t_f1 = res['metrics'].get('test_f1_macro', 0)
-            f.write(f"Fold Val {res['val_subject']}: Test Acc = {t_acc:.2f}%, Test F1 = {t_f1:.2f}%\n")
+            metrics = res['metrics']
+            best_epoch = metrics.get('best_epoch', 'N/A')
+            quant_suffix = ""
+
+            if quantization in ('softsign', 'linear'):
+                k_key = f"{quantization}_k"
+                mu_key = f"{quantization}_mu"
+                if k_key in metrics and mu_key in metrics:
+                    quant_suffix = f" | best k = {metrics[k_key]} | best mu = {metrics[mu_key]}"
+            elif quantization == 'gamma':
+                if "gamma_gamma" in metrics and "gamma_mu" in metrics:
+                    quant_suffix = f" | best gamma = {metrics['gamma_gamma']} | best mu = {metrics['gamma_mu']}"
+
+            f.write(
+                f"Fold Val {res['val_subject']}: Best Epoch = {best_epoch}, "
+                f"Test Acc = {t_acc:.2f}%, Test F1 = {t_f1:.2f}%{quant_suffix}\n"
+            )
 
 if __name__ == "__main__":
-    wandb.login()
+    import sys
+    if "--no-wandb" not in sys.argv:
+        wandb.login()
     main()

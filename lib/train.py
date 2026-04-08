@@ -81,7 +81,7 @@ class MyDataset(Dataset):
         return torch.FloatTensor(signal), torch.LongTensor([self.labels[idx]])[0]
         
 # Training function
-def train_loso(root_path, model_class, train_subjects, val_subjects, wandb_run=None, use_gyro=False, **train_kwargs):
+def train_loso(root_path, model_class, train_subjects, val_subjects, wandb_run=None, **train_kwargs):
     """
     Args:
         root_path: path to UCI-HAR
@@ -89,7 +89,6 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, wandb_run=N
         train_subjects
         val_subjects
         wandb_run:
-        use_gyro: Whether to include gyro data (default: False)
         **train_kwargs
     """
     # Hyperparameters 
@@ -101,6 +100,7 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, wandb_run=N
     min_delta = train_kwargs.get('min_delta', 1e-3)
     model_path = Path(train_kwargs.get('model_path', './models/best_model.pth'))
     model_path.parent.mkdir(parents=True, exist_ok=True)
+    use_gyro = train_kwargs.get('use_gyro', True)
 
     # Create dataset and dataloader
     train_dataset = MyDataset(root_path, split='train', subject_ids=train_subjects, use_gyro=use_gyro)
@@ -334,6 +334,7 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, wandb_run=N
         "test_accuracy": test_acc,
         "test_f1_macro": test_f1,
         "model_path": str(model_path),
+        **quant_params,
     }
 
 
