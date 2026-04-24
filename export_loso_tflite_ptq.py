@@ -2,11 +2,7 @@
 TFLite Post-Training Quantization for WEAR LOSO models.
 
 Pipeline:  PyTorch .pth  ->  ONNX  ->  TF SavedModel (via onnx2tf)  ->  TFLite (PTQ)
-Configs:   W8A16_INT_IO  |  W8A8_INT_IO
-
-Supports:
-- WEAR LOSO checkpoints under models/wear/<quantization>/<axis>/...
-- UCI-HAR LOSO checkpoints under models/...
+Configs:   W8A16_INT
 
 Usage:
     python wear_quantize_loso_tflite_ptq.py --dataset wear --subjects '0'
@@ -35,13 +31,13 @@ from torch.utils.data import DataLoader
 from sklearn.metrics import f1_score
 from sklearn.model_selection import StratifiedShuffleSplit
 
-# Keep TF/TFLite on CPU in environments with older or mismatched CUDA drivers.
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-
 #  project imports 
 from lib.model import SeparableConvCNN
 from lib.train import MyDataset
 from lib.wear_data import WearDataset
+
+# Keep TF/TFLite on CPU in environments with older or mismatched CUDA drivers.
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Helpers
@@ -274,7 +270,7 @@ def _make_representative_gen(
 
 
 #  TFLite conversion 
-PTQ_CONFIGS = ["W8A16_INT_IO"]
+PTQ_CONFIGS = ["W8A16_INT"]
 
 
 def _parse_macs_from_log(log_text: str) -> tuple[float | None, float | None]:
@@ -303,13 +299,13 @@ def _convert_to_tflite(
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
     converter.representative_dataset = rep_gen
 
-    if ptq_config == "W8A16_INT_IO":
+    if ptq_config == "W8A16_INT":
         converter.target_spec.supported_ops = [
             tf.lite.OpsSet.EXPERIMENTAL_TFLITE_BUILTINS_ACTIVATIONS_INT16_WEIGHTS_INT8,
             tf.lite.OpsSet.TFLITE_BUILTINS,
         ]
-        converter.inference_input_type = tf.int16
-        converter.inference_output_type = tf.int16
+        converter.inference_input_type = tf.float32
+        converter.inference_output_type = tf.float32
 
     with _capture_stderr_bytes() as captured_chunks:
         try:
