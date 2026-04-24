@@ -1,0 +1,25 @@
+Average Test Accuracy: 89.21% ± 2.88%
+Average Test F1-Macro: 89.06% ± 3.05%
+
+Detailed Fold Results:
+Fold Val 1: Best Epoch = N/A, Test Acc = 90.06%, Test F1 = 90.08% | best k = 0.9472041726112366 | best mu = 0.062483273446559906
+Fold Val 3: Best Epoch = N/A, Test Acc = 91.04%, Test F1 = 91.06% | best k = 0.8824900388717651 | best mu = 0.09007322043180466
+Fold Val 5: Best Epoch = N/A, Test Acc = 88.50%, Test F1 = 88.36% | best k = 0.9191611409187317 | best mu = -0.007812181022018194
+Fold Val 6: Best Epoch = N/A, Test Acc = 90.53%, Test F1 = 90.40% | best k = 1.0208115577697754 | best mu = 0.03794879466295242
+Fold Val 7: Best Epoch = N/A, Test Acc = 91.79%, Test F1 = 91.82% | best k = 0.775675892829895 | best mu = 0.11592144519090652
+Fold Val 8: Best Epoch = N/A, Test Acc = 89.96%, Test F1 = 89.96% | best k = 0.9476393461227417 | best mu = 0.11155036091804504
+Fold Val 11: Best Epoch = N/A, Test Acc = 90.46%, Test F1 = 90.33% | best k = 1.0420857667922974 | best mu = -0.024715606123209
+Fold Val 14: Best Epoch = N/A, Test Acc = 80.35%, Test F1 = 79.59% | best k = 0.991118311882019 | best mu = -0.016443869099020958
+Fold Val 15: Best Epoch = N/A, Test Acc = 92.03%, Test F1 = 91.91% | best k = 1.1168862581253052 | best mu = -2.2201413685252191e-07
+Fold Val 16: Best Epoch = N/A, Test Acc = 88.39%, Test F1 = 88.32% | best k = 1.0193490982055664 | best mu = -0.010114211589097977
+Fold Val 17: Best Epoch = N/A, Test Acc = 91.58%, Test F1 = 91.72% | best k = 0.7905063033103943 | best mu = 0.12729105353355408
+Fold Val 19: Best Epoch = N/A, Test Acc = 87.11%, Test F1 = 86.90% | best k = 0.8840951323509216 | best mu = 0.03286244347691536
+Fold Val 21: Best Epoch = N/A, Test Acc = 83.10%, Test F1 = 82.52% | best k = 0.8592230677604675 | best mu = 0.03698885813355446
+Fold Val 22: Best Epoch = N/A, Test Acc = 91.92%, Test F1 = 91.82% | best k = 1.1105849742889404 | best mu = 0.04251502826809883
+Fold Val 23: Best Epoch = N/A, Test Acc = 87.21%, Test F1 = 86.98% | best k = 0.8640486598014832 | best mu = 0.014993938617408276
+Fold Val 25: Best Epoch = N/A, Test Acc = 90.13%, Test F1 = 89.94% | best k = 0.8150858879089355 | best mu = 0.05820530280470848
+Fold Val 26: Best Epoch = N/A, Test Acc = 90.43%, Test F1 = 90.28% | best k = 1.1311423778533936 | best mu = -0.007684119511395693
+Fold Val 27: Best Epoch = N/A, Test Acc = 87.48%, Test F1 = 87.29% | best k = 0.9097397327423096 | best mu = -0.061223071068525314
+Fold Val 28: Best Epoch = N/A, Test Acc = 88.84%, Test F1 = 88.80% | best k = 0.8746704459190369 | best mu = 0.09623366594314575
+Fold Val 29: Best Epoch = N/A, Test Acc = 91.38%, Test F1 = 91.15% | best k = 0.9662819504737854 | best mu = -0.021679669618606567
+Fold Val 30: Best Epoch = N/A, Test Acc = 91.04%, Test F1 = 90.93% | best k = 0.9474223256111145 | best mu = 0.053180426359176636

@@ -1,0 +1,22 @@
+Average Test Accuracy: 72.67% ± 1.38%
+Average Test F1-Macro: 65.83% ± 1.43%
+
+Detailed Fold Results:
+Fold Val 0: Best Epoch = 9, Test Acc = 74.09%, Test F1 = 67.26%
+Fold Val 1: Best Epoch = 13, Test Acc = 74.78%, Test F1 = 68.14%
+Fold Val 2: Best Epoch = 2, Test Acc = 71.65%, Test F1 = 63.02%
+Fold Val 3: Best Epoch = 14, Test Acc = 73.81%, Test F1 = 66.70%
+Fold Val 4: Best Epoch = 3, Test Acc = 70.02%, Test F1 = 63.84%
+Fold Val 5: Best Epoch = 19, Test Acc = 73.90%, Test F1 = 64.80%
+Fold Val 6: Best Epoch = 30, Test Acc = 73.53%, Test F1 = 67.47%
+Fold Val 7: Best Epoch = 13, Test Acc = 72.58%, Test F1 = 64.83%
+Fold Val 8: Best Epoch = 19, Test Acc = 70.31%, Test F1 = 64.90%
+Fold Val 9: Best Epoch = 13, Test Acc = 72.02%, Test F1 = 64.87%
+Fold Val 10: Best Epoch = 5, Test Acc = 72.54%, Test F1 = 64.65%
+Fold Val 11: Best Epoch = 43, Test Acc = 73.66%, Test F1 = 66.72%
+Fold Val 12: Best Epoch = 10, Test Acc = 71.75%, Test F1 = 65.87%
+Fold Val 13: Best Epoch = 13, Test Acc = 71.17%, Test F1 = 65.53%
+Fold Val 14: Best Epoch = 13, Test Acc = 73.36%, Test F1 = 66.13%
+Fold Val 15: Best Epoch = 21, Test Acc = 74.72%, Test F1 = 68.02%
+Fold Val 16: Best Epoch = 30, Test Acc = 72.63%, Test F1 = 67.36%
+Fold Val 17: Best Epoch = 25, Test Acc = 71.50%, Test F1 = 64.92%

@@ -1,0 +1,22 @@
+Average Test Accuracy: 71.03% ± 3.24%
+Average Test F1-Macro: 64.21% ± 3.20%
+
+Detailed Fold Results:
+Fold Val 0: Best Epoch = 5, Test Acc = 70.40%, Test F1 = 62.20% | best gamma = 0.7942468523979187 | best mu = 0.12949730455875397
+Fold Val 1: Best Epoch = 27, Test Acc = 74.71%, Test F1 = 67.70% | best gamma = 0.9664224982261658 | best mu = 0.0011215830454602838
+Fold Val 2: Best Epoch = 9, Test Acc = 66.21%, Test F1 = 60.42% | best gamma = 0.9668176770210266 | best mu = -0.11357706040143967
+Fold Val 3: Best Epoch = 32, Test Acc = 73.45%, Test F1 = 67.72% | best gamma = 1.0048729181289673 | best mu = -0.030264949426054955
+Fold Val 4: Best Epoch = 2, Test Acc = 62.03%, Test F1 = 55.66% | best gamma = 0.7867194414138794 | best mu = 0.0009825695306062698
+Fold Val 5: Best Epoch = 4, Test Acc = 67.51%, Test F1 = 60.65% | best gamma = 0.820646345615387 | best mu = -0.016174765303730965
+Fold Val 6: Best Epoch = 16, Test Acc = 71.92%, Test F1 = 62.73% | best gamma = 0.9558488130569458 | best mu = -0.06397513300180435
+Fold Val 7: Best Epoch = 27, Test Acc = 71.46%, Test F1 = 65.98% | best gamma = 0.9410200119018555 | best mu = -0.13067662715911865
+Fold Val 8: Best Epoch = 39, Test Acc = 75.00%, Test F1 = 67.40% | best gamma = 0.9630034565925598 | best mu = -0.042016711086034775
+Fold Val 9: Best Epoch = 13, Test Acc = 71.27%, Test F1 = 62.92% | best gamma = 0.9634310603141785 | best mu = -0.0912373811006546
+Fold Val 10: Best Epoch = 3, Test Acc = 70.16%, Test F1 = 62.39% | best gamma = 0.7742021679878235 | best mu = -0.02034938335418701
+Fold Val 11: Best Epoch = 25, Test Acc = 74.78%, Test F1 = 67.99% | best gamma = 0.9673957228660583 | best mu = 0.07833664119243622
+Fold Val 12: Best Epoch = 26, Test Acc = 73.09%, Test F1 = 65.77% | best gamma = 0.918790876865387 | best mu = -0.09977757185697556
+Fold Val 13: Best Epoch = 15, Test Acc = 68.28%, Test F1 = 62.23% | best gamma = 0.9086726307868958 | best mu = 0.09704482555389404
+Fold Val 14: Best Epoch = 23, Test Acc = 73.03%, Test F1 = 65.27% | best gamma = 1.0092462301254272 | best mu = -0.08477512747049332
+Fold Val 15: Best Epoch = 29, Test Acc = 72.96%, Test F1 = 66.78% | best gamma = 1.00251305103302 | best mu = 0.07615892589092255
+Fold Val 16: Best Epoch = 21, Test Acc = 71.98%, Test F1 = 66.63% | best gamma = 0.935353696346283 | best mu = -0.0007217631209641695
+Fold Val 17: Best Epoch = 35, Test Acc = 70.21%, Test F1 = 65.36% | best gamma = 0.9705998301506042 | best mu = -0.05122581869363785
