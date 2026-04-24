@@ -38,7 +38,7 @@ from sklearn.model_selection import StratifiedShuffleSplit
 # Keep TF/TFLite on CPU in environments with older or mismatched CUDA drivers.
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-# ── project imports ──────────────────────────────────────────────────────────
+#  project imports 
 from lib.model import SeparableConvCNN
 from lib.train import MyDataset
 from lib.wear_data import WearDataset
@@ -47,36 +47,10 @@ from lib.wear_data import WearDataset
 # Helpers
 # ═══════════════════════════════════════════════════════════════════════════════
 
-
-
-
-# def _require_tensorflow():
-#     """Import TensorFlow lazily to avoid hard failure at module import time."""
-#     global _TF_MODULE
-#     if _TF_MODULE is not None:
-#         return _TF_MODULE
-
-#     try:
-#         import tensorflow as tf  # pylint: disable=import-error
-#         _TF_MODULE = tf
-#         return tf
-#     except Exception as exc:  # pragma: no cover - error path
-#         msg = str(exc)
-#         if "StringDType" in msg and "jax" in msg:
-#             raise RuntimeError(
-#                 "TensorFlow import failed due to jax/numpy incompatibility in the current env. "
-#                 "Fix by removing jax/jaxlib from this env (recommended for this script), "
-#                 "or align jax with your installed numpy. Example: "
-#                 "pip uninstall -y jax jaxlib"
-#             ) from exc
-#         raise RuntimeError(f"TensorFlow import failed: {exc}") from exc
-
-
 def set_seed(seed: int = 42):
     np.random.seed(seed)
     torch.manual_seed(seed)
     tf.random.set_seed(seed)
-    
 
 
 def _parse_subject_selection(subjects_arg: str | None) -> list[int] | None:
@@ -109,7 +83,7 @@ def _make_dataset(
     raise ValueError(f"Unsupported dataset: {dataset_name}")
 
 
-# ── Model loading ────────────────────────────────────────────────────────────
+#  Model loading 
 def _load_pytorch_model(
     model_path: Path,
     device: torch.device,
@@ -220,7 +194,7 @@ def _capture_stderr_bytes() -> Iterator[list[bytes]]:
         os.close(pipe_r)
 
 
-# ── ONNX → TF SavedModel ────────────────────────────────────────────────────
+#  ONNX → TF SavedModel 
 def _export_onnx_and_convert(
     pt_model: torch.nn.Module,
     onnx_path: Path,
@@ -251,7 +225,7 @@ def _export_onnx_and_convert(
     print(f"  TF SavedModel → {saved_model_dir}")
 
 
-# ── Representative dataset generator ────────────────────────────────────────
+#  Representative dataset generator 
 def _make_representative_gen(
     dataset: WearDataset,
     n_samples: int = 256,
@@ -282,7 +256,6 @@ def _make_representative_gen(
         try:
             indices, _ = next(sss.split(np.zeros(total), labels))
         except ValueError:
-            # Fallback when stratification is impossible (e.g. class has one sample).
             rng = np.random.default_rng(42)
             indices = rng.choice(total, size=n_samples, replace=False)
 
@@ -300,8 +273,8 @@ def _make_representative_gen(
     return gen
 
 
-# ── TFLite conversion ────────────────────────────────────────────────────────
-PTQ_CONFIGS = ["W8A16_INT_IO", "W8A8_INT_IO"]
+#  TFLite conversion 
+PTQ_CONFIGS = ["W8A16_INT_IO"]
 
 
 def _parse_macs_from_log(log_text: str) -> tuple[float | None, float | None]:
@@ -335,18 +308,8 @@ def _convert_to_tflite(
             tf.lite.OpsSet.EXPERIMENTAL_TFLITE_BUILTINS_ACTIVATIONS_INT16_WEIGHTS_INT8,
             tf.lite.OpsSet.TFLITE_BUILTINS,
         ]
-        # TF Lite's Python Interpreter does not accept int16 tensors via set_tensor.
-        # Keep external I/O float32 and let the converter quantize activations internally.
-        converter.inference_input_type = tf.float32
-        converter.inference_output_type = tf.float32
-
-    elif ptq_config == "W8A8_INT_IO":
-        converter.target_spec.supported_ops = [
-            tf.lite.OpsSet.TFLITE_BUILTINS_INT8,
-            tf.lite.OpsSet.TFLITE_BUILTINS,
-        ]
-        converter.inference_input_type = tf.int8
-        converter.inference_output_type = tf.int8
+        converter.inference_input_type = tf.int16
+        converter.inference_output_type = tf.int16
 
     with _capture_stderr_bytes() as captured_chunks:
         try:
@@ -360,7 +323,7 @@ def _convert_to_tflite(
     return tflite_model, ops, macs
 
 
-# ── TFLite evaluation ────────────────────────────────────────────────────────
+#  TFLite evaluation 
 def _evaluate_tflite(
     tflite_model: bytes,
     dataloader: DataLoader,
@@ -496,7 +459,7 @@ def main():
     device = torch.device("cpu")          # export & conversion run on CPU
     metrics_history = {c: {"acc": [], "f1": []} for c in PTQ_CONFIGS}
 
-    # ── fold loop ────────────────────────────────────────────────────────────
+    #  fold loop 
     for val_subject in fold_subjects:
         print(f"\n{'=' * 60}")
         print(f"  Fold – validation subject {val_subject}")
@@ -523,7 +486,7 @@ def main():
             expected_num_channels=num_channels,
         )
 
-        # ── datasets ─────────────────────────────────────────────────────────
+        #  datasets 
         train_subjects = [s for s in all_train_subjects if s != val_subject]
         train_ds = _make_dataset(args.dataset, root_path, train_subjects, split="train")
         test_ds = _make_dataset(args.dataset, root_path, test_eval_subjects, split=test_split)
@@ -549,7 +512,7 @@ def main():
 
         test_loader = DataLoader(test_ds, batch_size=64, shuffle=False)
 
-        # ── export & convert once per fold ───────────────────────────────────
+        #  export & convert once per fold 
         with TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             onnx_path      = tmpdir / "model.onnx"
@@ -571,9 +534,9 @@ def main():
                     f" | External input preprocess: {'yes' if input_preprocessor is not None else 'no'}\n"
                 )
 
-            # ── quantize & eval each config ──────────────────────────────────
+            #  quantize & eval each config 
             for cfg in PTQ_CONFIGS:
-                print(f"\n  ── {cfg} ──")
+                print(f"\n   {cfg} ")
                 tflite_model, ops, macs = _convert_to_tflite(str(saved_model_dir), cfg, rep_gen)
                 if tflite_model is None:
                     continue
@@ -606,7 +569,7 @@ def main():
                         f" | OPs: {ops_str} | MACs: {macs_str}\n"
                     )
 
-    # ── summary ──────────────────────────────────────────────────────────────
+    #  summary 
     with open(results_path, "a") as f:
         f.write(f"\n{'=' * 50}\nOVERALL AVERAGES\n{'=' * 50}\n")
         for cfg in PTQ_CONFIGS:
