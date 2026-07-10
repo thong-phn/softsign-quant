@@ -1,0 +1,6 @@
+Dataset: MHEALTH
+Average Test Accuracy: 64.17% ± 0.00%
+Average Test F1-Macro: 57.61% ± 0.00%
+
+Detailed Fold Results:
+Fold Val 1: Best Epoch = 8, Test Acc = 64.17%, Test F1 = 57.61% | best gamma = 0.6944553256034851 | best mu = 0.06514369696378708

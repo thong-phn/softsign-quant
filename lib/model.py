@@ -22,7 +22,7 @@ class SoftsignQuant(nn.Module):
             self.mu = nn.Parameter(torch.tensor(mu_init, dtype=torch.float32))
 
     # Legacy forward kept for reference: naive normalization using k / (1 + k).
-    def forward_naive_kk1(self, x):
+    def forwardV1(self, x):
         # Stage 1: Compute raw softsign
         z = self.k * (x - self.mu)
         d = 1.0 + torch.abs(z)
@@ -52,7 +52,7 @@ class SoftsignQuant(nn.Module):
         
         return out
     # Forward scaled V2
-    def forward(self, x):
+    def forwardV2(self, x):
         # Stage 1: Compute raw softsign on the input tensor.
         z = self.k * (x - self.mu)
         raw_softsign = z / (1.0 + torch.abs(z))
@@ -87,7 +87,7 @@ class SoftsignQuant(nn.Module):
         return out
     
     # Forward affine V3
-    def forwardV3(self, x):
+    def forward(self, x):
         # Stage 1: Compute raw softsign on the input tensor.
         z = self.k * (x - self.mu)
         raw_softsign = z / (1.0 + torch.abs(z))
@@ -147,7 +147,6 @@ class UniformQuantizerSTE(nn.Module):
         # Straight-through estimator: use quantized value in forward, but pass gradients as if identity
         return x + (x_dequant - x).detach()
         
-
 class gammaFunction(nn.Module):
     """
     Gamma function as proposed in paper. 

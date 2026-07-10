@@ -142,6 +142,7 @@ def _load_pytorch_model(
 def _resolve_loso_checkpoint(
     dataset_name: str,
     project_root: Path,
+    test_subject: int,
     val_subject: int,
     quantization: str,
     per_channel_quant: bool,
@@ -160,20 +161,14 @@ def _resolve_loso_checkpoint(
         prefix_parts.append("per_channel")
     prefix = "_".join(prefix_parts)
     
-    new_path = project_root / "models" / f"{prefix}_val_{val_subject}.pth"
+    # Try the new naming convention first
+    new_path = project_root / "models" / f"{prefix}_test_{test_subject}_val_{val_subject}.pth"
     if new_path.exists():
         return new_path
         
     # Fallback for older models
-    if dataset_name == "uci-har":
-        old_prefix = "best_model_loso"
-    else:
-        old_prefix = "wear_best_model_loso"
-        
-    old_parts = [old_prefix, quantization]
-    if per_channel_quant:
-        old_parts.append("per_channel")
-    return project_root / "models" / f"{'_'.join(old_parts)}_val_{val_subject}.pth"
+    old_path = project_root / "models" / f"{prefix}_val_{val_subject}.pth"
+    return old_path
 
 
 def _count_parameters(model: torch.nn.Module) -> int:
@@ -444,44 +439,39 @@ def main():
 
     if args.dataset == "wear":
         root_path = project_root / "datasets" / "wear"
-        all_train_subjects = list(range(18))
-        test_eval_subjects = list(range(18, 24))
+        all_subjects = list(range(24))
         test_split = None
         dataset_tag = "wear"
         num_channels = 3
     elif args.dataset == "uci-har":
         root_path = project_root / "datasets" / "uci-har"
-        all_train_subjects = _load_subject_ids(root_path / "train" / "subject_train.txt")
-        test_eval_subjects = _load_subject_ids(root_path / "test" / "subject_test.txt")
+        all_subjects = _load_subject_ids(root_path / "train" / "subject_train.txt") + _load_subject_ids(root_path / "test" / "subject_test.txt")
         test_split = "test"
         dataset_tag = "uci-har"
         num_channels = 6
     elif args.dataset == "recgym":
         root_path = project_root / "datasets" / "recgym"
-        all_train_subjects = list(range(1, 9))
-        test_eval_subjects = [9, 10]
+        all_subjects = list(range(1, 11))
         test_split = None
         dataset_tag = "recgym"
         num_channels = 6
     elif args.dataset == "realworld":
         root_path = project_root / "datasets" / "realworld"
-        all_train_subjects = list(range(1, 14))
-        test_eval_subjects = [14, 15]
+        all_subjects = list(range(1, 16))
         test_split = None
         dataset_tag = "realworld"
         num_channels = 9
     else:  # mhealth
         root_path = project_root / "datasets" / "mheath"
-        all_train_subjects = list(range(1, 10))
-        test_eval_subjects = [10]
+        all_subjects = list(range(1, 11))
         test_split = None
         dataset_tag = "mhealth"
         num_channels = 9
 
     requested = _parse_subject_selection(args.subjects)
-    fold_subjects = requested if requested is not None else all_train_subjects
+    test_folds = requested if requested is not None else all_subjects
 
-    if args.model_path is not None and len(fold_subjects) != 1:
+    if args.model_path is not None and len(test_folds) != 1:
         raise ValueError("--model-path can only be used with exactly one subject in --subjects.")
 
     axis_name = "per-channel" if args.per_channel_quant else "shared-axis"
@@ -498,115 +488,117 @@ def main():
     metrics_history = {c: {"acc": [], "f1": []} for c in PTQ_CONFIGS}
 
     #  fold loop 
-    for val_subject in fold_subjects:
-        print(f"\n{'=' * 60}")
-        print(f"  Fold – validation subject {val_subject}")
-        print(f"{'=' * 60}")
+    for test_subject in test_folds:
+        remaining_subjects = [s for s in all_subjects if s != test_subject]
+        for val_subject in remaining_subjects:
+            print(f"\n{'=' * 60}")
+            print(f"  Fold – Test Subject: {test_subject} | Validation Subject: {val_subject}")
+            print(f"{'=' * 60}")
 
-        ckpt = _resolve_loso_checkpoint(
-            dataset_name=args.dataset,
-            project_root=project_root,
-            val_subject=val_subject,
-            quantization=args.quantization,
-            per_channel_quant=args.per_channel_quant,
-            model_path=args.model_path,
-        )
-
-        if not ckpt.exists():
-            print(f"  [skip] checkpoint not found: {ckpt}")
-            continue
-
-        pt_model, in_channels, had_quant_params, input_preprocessor = _load_pytorch_model(
-            model_path=ckpt,
-            device=device,
-            quantization=args.quantization,
-            per_channel_quant=args.per_channel_quant,
-            expected_num_channels=num_channels,
-        )
-
-        #  datasets 
-        train_subjects = [s for s in all_train_subjects if s != val_subject]
-        train_ds = _make_dataset(args.dataset, root_path, train_subjects, split="train")
-        test_ds = _make_dataset(args.dataset, root_path, test_eval_subjects, split=test_split)
-
-        if len(train_ds) == 0 or len(test_ds) == 0:
-            print("  [skip] Empty train/test dataset for this fold")
-            continue
-
-        # Determine input shape from the first sample
-        sample_x, _ = train_ds[0]
-        freq_bins = sample_x.shape[-1]
-        input_shape = (1, in_channels, freq_bins)
-        n_params = _count_parameters(pt_model)
-        print(f"  Dataset: {args.dataset}")
-        print(f"  Input shape for export: {input_shape}")
-        print(f"  PyTorch model parameters: {n_params:,}")
-        print(
-            "  Export quant layer: disabled "
-            f"(checkpoint had quant params: {'yes' if had_quant_params else 'no'})"
-        )
-        if input_preprocessor is not None:
-            print("  Input preprocessing: external learned quant transform is enabled")
-
-        test_loader = DataLoader(test_ds, batch_size=64, shuffle=False)
-
-        #  export & convert once per fold 
-        with TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            onnx_path      = tmpdir / "model.onnx"
-            saved_model_dir = tmpdir / "saved_model"
-
-            _export_onnx_and_convert(pt_model, onnx_path, saved_model_dir, input_shape)
-
-            rep_gen = _make_representative_gen(
-                train_ds,
-                n_samples=256,
-                input_preprocessor=input_preprocessor,
+            ckpt = _resolve_loso_checkpoint(
+                dataset_name=args.dataset,
+                project_root=project_root,
+                test_subject=test_subject,
+                val_subject=val_subject,
+                quantization=args.quantization,
+                per_channel_quant=args.per_channel_quant,
+                model_path=args.model_path,
             )
 
-            # Log model info once per fold
-            with open(results_path, "a") as f:
-                f.write(
-                    f"\nFold {val_subject} | Checkpoint: {ckpt} | Params: {n_params:,}"
-                    f" | Quant disabled for export: yes"
-                    f" | External input preprocess: {'yes' if input_preprocessor is not None else 'no'}\n"
-                )
+            if not ckpt.exists():
+                print(f"  [skip] checkpoint not found: {ckpt}")
+                continue
 
-            #  quantize & eval each config 
-            for cfg in PTQ_CONFIGS:
-                print(f"\n   {cfg} ")
-                tflite_model, ops, macs = _convert_to_tflite(str(saved_model_dir), cfg, rep_gen)
-                if tflite_model is None:
-                    continue
+            pt_model, in_channels, had_quant_params, input_preprocessor = _load_pytorch_model(
+                model_path=ckpt,
+                device=device,
+                quantization=args.quantization,
+                per_channel_quant=args.per_channel_quant,
+                expected_num_channels=num_channels,
+            )
 
-                tflite_size_kb = len(tflite_model) / 1024
+            #  datasets 
+            train_subjects = [s for s in remaining_subjects if s != val_subject]
+            train_ds = _make_dataset(args.dataset, root_path, train_subjects, split="train")
+            test_ds = _make_dataset(args.dataset, root_path, [test_subject], split=test_split)
 
-                # Save .tflite for inspection in a persistent location
-                tflite_dir = project_root / "models" / "tflite"
-                tflite_dir.mkdir(parents=True, exist_ok=True)
-                tflite_out = tflite_dir / f"{dataset_tag}_val_{val_subject}_{cfg}.tflite"
-                tflite_out.write_bytes(tflite_model)
+            if len(train_ds) == 0 or len(test_ds) == 0:
+                print("  [skip] Empty train/test dataset for this fold")
+                continue
 
-                ops_str, macs_str = _format_ops_macs(ops, macs)
-                print(f"  TFLite size: {tflite_size_kb:.1f} KB  |  OPs: {ops_str}  |  MACs: {macs_str}")
+            # Determine input shape from the first sample
+            sample_x, _ = train_ds[0]
+            freq_bins = sample_x.shape[-1]
+            input_shape = (1, in_channels, freq_bins)
+            n_params = _count_parameters(pt_model)
+            print(f"  Dataset: {args.dataset}")
+            print(f"  Input shape for export: {input_shape}")
+            print(f"  PyTorch model parameters: {n_params:,}")
+            print(
+                "  Export quant layer: disabled "
+                f"(checkpoint had quant params: {'yes' if had_quant_params else 'no'})"
+            )
+            if input_preprocessor is not None:
+                print("  Input preprocessing: external learned quant transform is enabled")
 
-                acc, f1 = _evaluate_tflite(
-                    tflite_model,
-                    test_loader,
+            test_loader = DataLoader(test_ds, batch_size=64, shuffle=False)
+
+            #  export & convert once per fold 
+            with TemporaryDirectory() as tmpdir:
+                tmpdir = Path(tmpdir)
+                onnx_path      = tmpdir / "model.onnx"
+                saved_model_dir = tmpdir / "saved_model"
+
+                _export_onnx_and_convert(pt_model, onnx_path, saved_model_dir, input_shape)
+
+                rep_gen = _make_representative_gen(
+                    train_ds,
+                    n_samples=256,
                     input_preprocessor=input_preprocessor,
                 )
-                print(f"  Result: Acc {acc:.2f}%  F1 {f1:.4f}")
 
-                metrics_history[cfg]["acc"].append(acc)
-                metrics_history[cfg]["f1"].append(f1)
-
+                # Log model info once per fold
                 with open(results_path, "a") as f:
                     f.write(
-                        f"  {cfg} | Acc: {acc:.2f}% | F1: {f1:.4f}"
-                        f" | Size: {tflite_size_kb:.1f} KB"
-                        f" | OPs: {ops_str} | MACs: {macs_str}\n"
+                        f"\nFold Test {test_subject} Val {val_subject} | Checkpoint: {ckpt} | Params: {n_params:,}"
+                        f" | Quant disabled for export: yes"
+                        f" | External input preprocess: {'yes' if input_preprocessor is not None else 'no'}\n"
                     )
 
+                #  quantize & eval each config 
+                for cfg in PTQ_CONFIGS:
+                    print(f"\n   {cfg} ")
+                    tflite_model, ops, macs = _convert_to_tflite(str(saved_model_dir), cfg, rep_gen)
+                    if tflite_model is None:
+                        continue
+
+                    tflite_size_kb = len(tflite_model) / 1024
+
+                    # Save .tflite for inspection in a persistent location
+                    tflite_dir = project_root / "models" / "tflite"
+                    tflite_dir.mkdir(parents=True, exist_ok=True)
+                    tflite_out = tflite_dir / f"{dataset_tag}_test_{test_subject}_val_{val_subject}_{cfg}.tflite"
+                    tflite_out.write_bytes(tflite_model)
+
+                    ops_str, macs_str = _format_ops_macs(ops, macs)
+                    print(f"  TFLite size: {tflite_size_kb:.1f} KB  |  OPs: {ops_str}  |  MACs: {macs_str}")
+
+                    acc, f1 = _evaluate_tflite(
+                        tflite_model,
+                        test_loader,
+                        input_preprocessor=input_preprocessor,
+                    )
+                    print(f"  Result: Acc {acc:.2f}%  F1 {f1:.4f}")
+
+                    metrics_history[cfg]["acc"].append(acc)
+                    metrics_history[cfg]["f1"].append(f1)
+
+                    with open(results_path, "a") as f:
+                        f.write(
+                            f"  {cfg} | Acc: {acc:.2f}% | F1: {f1:.4f}"
+                            f" | Size: {tflite_size_kb:.1f} KB"
+                            f" | OPs: {ops_str} | MACs: {macs_str}\n"
+                        )
     #  summary 
     with open(results_path, "a") as f:
         f.write(f"\n{'=' * 50}\nOVERALL AVERAGES\n{'=' * 50}\n")

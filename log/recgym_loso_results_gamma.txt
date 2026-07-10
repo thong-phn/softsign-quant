@@ -1,0 +1,6 @@
+Dataset: RECGYM
+Average Test Accuracy: 84.85% ± 0.00%
+Average Test F1-Macro: 85.14% ± 0.00%
+
+Detailed Fold Results:
+Fold Val 1: Best Epoch = 13, Test Acc = 84.85%, Test F1 = 85.14% | best gamma = 0.5650054812431335 | best mu = -0.08707674592733383

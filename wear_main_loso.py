@@ -26,6 +26,7 @@ def set_seed(seed: int = 42):
 import argparse
 
 def main():
+    # Config
     parser = argparse.ArgumentParser(description="LOSO Training script")
     parser.add_argument("--quantization", type=str, choices=['no', 'softsign', 'gamma', 'linear'], default='softsign', help="Quantization layer to use")
     parser.add_argument("--per-channel-quant", action="store_true", help="Use per-channel quantization")
@@ -87,11 +88,11 @@ def main():
                 },
             )
 
-            # Log code version
-            wandb_run.log_code(
-                root=str(project_root),
-                include_fn=lambda p: p.endswith((".py", ".yaml", ".yml", ".md"))
-            )
+            # # Log code version
+            # wandb_run.log_code(
+            #     root=str(project_root),
+            #     include_fn=lambda p: p.endswith((".py", ".yaml", ".yml", ".md"))
+            # )
         
         # Save model dynamically based on fold
         prefix_parts = ["wear_best_model_loso"]

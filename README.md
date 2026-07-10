@@ -1,13 +1,15 @@
-# Softsign Quantization for Wearable HAR
+# Towards On-Wearable Human Activity Recognition Deep Learning with Learnable Quantization
+Implementing robust Human Activity Recognition (HAR) in always-on wearable scenarios is fundamentally restricted by the
+severe energy and memory limitations of low-power sensing platforms. Traditional pipelines worsen these bottlenecks
+by relying on high-precision floating-point representations, which increase energy consumption and data throughput. We
+address this by investigating non-linear, learnable quantization for efficient on-device HAR. We propose Softsign-QUANT, a hardware-friendly alternative tailored for microcontroller execution.
 
-This repository contains the code used to train, evaluate, and export learnable input quantization models for Human Activity Recognition (HAR) on wearable sensor data.
+Evaluation on benchmark HAR datasets demonstrates that 4-bit input quantization preserves activity-relevant information,
+achieving macro F1-scores comparable to uncompressed baselines. We further show that shared quantization parameters
+across sensor axes are sufficient for HAR, effectively minimizing memory overhead. Our findings establish learnable 4-bit Softsign quantization as a practical, energy-efficient mechanism for deploying deep learning-based HAR on memory-constrained edge architectures.
 
-It supports two datasets:
-
-- UCI-HAR: tri-axial accelerometer + gyroscope data
-- WEAR: tri-axial accelerometer data from wearable exercise recordings
-
-The main goal is to compare baseline training, learnable quantization layers, and post-training TFLite export for edge deployment.
+## Results
+![alt text](img/model_arch.png)
 
 ## Highlights
 
@@ -33,27 +35,6 @@ The main goal is to compare baseline training, learnable quantization layers, an
 - `lib/wear_train.py` — WEAR training loop
 - `models/` — saved checkpoints and exported artifacts
 - `log/` — experiment summaries
-
-## Requirements
-
-Install the Python dependencies listed in `requirements.txt`.
-
-Recommended environment:
-
-- Python 3.10 or newer
-- PyTorch
-- TensorFlow / TFLite
-- scikit-learn
-- Weights & Biases, if logging is enabled
-
-## Data layout
-
-The repository expects the datasets to be available in these folders:
-
-- `uci-har/`
-- `wear/`
-
-The UCI-HAR folder should contain the standard train/test splits and inertial signal files. The WEAR folder should contain the subject CSV files already used by the training scripts.
 
 ## Training
 

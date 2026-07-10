@@ -3,16 +3,17 @@ import torch.nn as nn
 import numpy as np
 from torch.utils.data import DataLoader
 from sklearn.metrics import f1_score
+from sklearn.utils.class_weight import compute_class_weight
 from pathlib import Path
 import wandb
 
-from lib.wear_data import WearDataset
+from lib.recgym_data import RecGymDataset
 
 # Training function
 def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjects, wandb_run=None, **train_kwargs):
     """
     Args:
-        root_path: path to WEAR
+        root_path: path to RecGym
         model_class
         train_subjects
         val_subjects
@@ -31,9 +32,9 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
     model_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Create dataset and dataloader
-    train_dataset = WearDataset(root_path, subject_ids=train_subjects)
-    val_dataset = WearDataset(root_path, subject_ids=val_subjects)
-    test_dataset = WearDataset(root_path, subject_ids=test_subjects)
+    train_dataset = RecGymDataset(root_path, subject_ids=train_subjects)
+    val_dataset = RecGymDataset(root_path, subject_ids=val_subjects)
+    test_dataset = RecGymDataset(root_path, subject_ids=test_subjects)
 
     if len(train_dataset) > 0:
         train_mean, train_std = train_dataset.compute_statistics()
@@ -47,6 +48,7 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
     g = torch.Generator()
     g.manual_seed(42)
 
+    # Handle cases where datasets might be empty
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, generator=g) if len(train_dataset) > 0 else None
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False) if len(val_dataset) > 0 else None
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False) if len(test_dataset) > 0 else None
@@ -55,10 +57,14 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
     print(f"Val samples: {len(val_dataset)}")
     print(f"Test samples: {len(test_dataset)}")
 
-    # WEAR dataset has 3 channels (left_arm_acc_x, y, z) and 8 classes
-    num_channels = 3
-    num_classes = 8
-    print(f"Using {num_channels} channels (accel only) for {num_classes} classes")
+    if train_dataloader is None or val_dataloader is None or test_dataloader is None:
+        print("One of the datasets is empty. Aborting fold.")
+        return {}
+
+    # RecGym dataset has 6 channels and 12 classes
+    num_channels = train_kwargs.get('num_channels', 6)
+    num_classes = 12
+    print(f"Using {num_channels} channels for {num_classes} classes")
 
     # Training loop configuration
     quantization = train_kwargs.get('quantization', 'softsign')
@@ -66,7 +72,19 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
     
     # We pass num_classes=num_classes down to the model if it supports it
     model = model_class(num_channels=num_channels, num_classes=num_classes, quantization=quantization, per_channel_quant=per_channel_quant).to(device)
-    criterion = nn.CrossEntropyLoss()
+    
+    if hasattr(train_dataset, 'labels') and len(train_dataset.labels) > 0:
+        classes = np.unique(train_dataset.labels)
+        class_weights = compute_class_weight(class_weight='balanced', classes=classes, y=train_dataset.labels)
+        weights = np.ones(num_classes, dtype=np.float32)
+        for c, w in zip(classes, class_weights):
+            weights[c] = w
+        class_weights_tensor = torch.tensor(weights, dtype=torch.float32).to(device)
+        criterion = nn.CrossEntropyLoss(weight=class_weights_tensor)
+        print(f"Using class weights: {weights}")
+    else:
+        criterion = nn.CrossEntropyLoss()
+        
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=10, min_lr=1e-6
@@ -74,35 +92,35 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
 
     best_val_loss = float('inf')
     best_val_accuracy = 0.0
-    best_epoch = 0 # 
-    epochs_no_improve = 0 # early stopping
+    best_epoch = 0
+    epochs_no_improve = 0
 
     print("-"*50)
     # Training loop
     for epoch in range(epochs):
         # Train one epoch
-        train_loss_sum = 0.0 # sum of training loss  
-        train_correct = 0 # no. of training samples predicted correctly
-        train_total = 0 # no. of training samples used
+        train_loss_sum = 0.0
+        train_correct = 0
+        train_total = 0
         
         model.train()
 
         for inputs, labels in train_dataloader:
             inputs, labels = inputs.to(device), labels.to(device)
 
-            outputs = model(inputs) # 1. forward 
-            loss = criterion(outputs, labels) # 2. loss
-            optimizer.zero_grad() # 3. backward: zero_grad
-            loss.backward() # cal gradient
-            optimizer.step() # update step
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-            train_loss_sum += loss.item() * labels.size(0) # loss.item() is the average loss of the batch -> recover loss of the batch
+            train_loss_sum += loss.item() * labels.size(0)
             _, predicted = outputs.max(1)
             train_total += labels.size(0)
             train_correct += predicted.eq(labels).sum().item()
 
-        train_loss = train_loss_sum/train_total
-        train_acc = train_correct/train_total * 100.0
+        train_loss = train_loss_sum/max(train_total, 1)
+        train_acc = train_correct/max(train_total, 1) * 100.0
 
         # Val one epoch
         model.eval()
@@ -110,7 +128,7 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
         val_correct = 0
         val_total = 0
         
-        with torch.no_grad(): # no need to track grad in val
+        with torch.no_grad():
             for inputs, labels in val_dataloader:
                 inputs, labels = inputs.to(device), labels.to(device)
                 
@@ -124,7 +142,7 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
 
         val_loss = val_loss_sum / max(val_total, 1)
         val_acc = 100. * val_correct / max(val_total, 1)
-        scheduler.step(val_loss) # Step LR scheduler on val loss
+        scheduler.step(val_loss)
         
         # Save best model based on val_loss
         if val_loss < best_val_loss - min_delta:
@@ -150,7 +168,7 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
             else:
                 print(f"  [{quantization}] epoch params | k={float(k_param.item()):.6f} | mu={float(mu_param.item()):.6f}")
         
-        if wandb_run is not None: # tracking
+        if wandb_run is not None:
             epoch_log = {
                 "epoch": epoch + 1,
                 "train_loss": train_loss,
@@ -158,8 +176,7 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
                 "val_loss": val_loss,
                 "val_acc": val_acc,
                 "best_val_loss": best_val_loss,
-                "lr": optimizer.param_groups[0]["lr"],  # actual LR
-                # "epochs_no_improve": epochs_no_improve, # early stopping
+                "lr": optimizer.param_groups[0]["lr"],
             }
 
             if hasattr(model, 'quant') and model.quant is not None and quantization in ('softsign', 'linear'):
@@ -179,10 +196,9 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
 
             wandb_run.log(epoch_log)
 
-        if epochs_no_improve >= patience: # early stopping
+        if epochs_no_improve >= patience:
             print(f"Early Stopping: Epoch [{epoch+1}/{epochs}] (patience={patience}, min_delta={min_delta}).")
             break
-
 
     # Test with best model
     model.load_state_dict(torch.load(model_path, map_location=device))
@@ -208,7 +224,11 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
 
     test_loss = test_loss_sum / max(test_total, 1)
     test_acc = 100.0 * test_correct / max(test_total, 1)
-    test_f1 = f1_score(all_labels, all_preds, average='macro') * 100.0
+    # Check if there's any test data
+    if len(all_labels) > 0:
+        test_f1 = f1_score(all_labels, all_preds, average='macro') * 100.0
+    else:
+        test_f1 = 0.0
     
     print("-"*50)
     print(f"Summary:")
@@ -222,38 +242,27 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
         quantization = train_kwargs.get('quantization', 'softsign')
         
         if quantization == 'softsign' or quantization == 'linear':
-            # For SoftsignQuant and LinearQuant: extract k and mu
             k_param = quant_layer.k.detach().cpu()
             mu_param = quant_layer.mu.detach().cpu()
             
-            # Handle both per-channel and non-per-channel cases
             if k_param.dim() > 0 and k_param.numel() > 1:
-                # Per-channel: flatten and convert to list
                 quant_params[f"{quantization}_k"] = k_param.flatten().tolist()
                 quant_params[f"{quantization}_mu"] = mu_param.flatten().tolist()
             else:
-                # Single value
                 quant_params[f"{quantization}_k"] = float(k_param.item())
                 quant_params[f"{quantization}_mu"] = float(mu_param.item())                       
         elif quantization == 'gamma':
-            # For GammaQuant: extract gamma and offset (mu)
             gamma_param = quant_layer.gamma_func.gamma.detach().cpu()
             offset_param = quant_layer.gamma_func.offset.detach().cpu()
             
-            # Handle both per-channel and non-per-channel cases
             if gamma_param.dim() > 0 and gamma_param.numel() > 1:
-                # Per-channel: flatten and convert to list
                 quant_params["gamma_gamma"] = gamma_param.flatten().tolist()
                 quant_params["gamma_mu"] = offset_param.flatten().tolist()
             else:
-                # Single value
                 quant_params["gamma_gamma"] = float(gamma_param.item())
                 quant_params["gamma_mu"] = float(offset_param.item())
-        
-        # print(f"Best epoch quant params [{quantization}] | k={quant_params[f'{quantization}_k']} | mu={quant_params[f'{quantization}_mu']}")
     
-
-    if wandb_run is not None: # tracking
+    if wandb_run is not None:
         summary_dict = {
             "best_val_loss": best_val_loss,
             "best_val_acc": best_val_accuracy,
@@ -262,13 +271,12 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
             "test_acc": test_acc,
             "test_f1_macro": test_f1,
         }
-        # Confusion matrix
-        summary_dict["confusion_matrix"] = wandb.plot.confusion_matrix(
-            y_true=all_labels,
-            preds=all_preds,
-            class_names=WearDataset.load_activity_labels(root_path)
-        )
-        # Add quantization parameters to summary
+        if len(all_labels) > 0:
+            summary_dict["confusion_matrix"] = wandb.plot.confusion_matrix(
+                y_true=all_labels,
+                preds=all_preds,
+                class_names=RecGymDataset.load_activity_labels(root_path)
+            )
         summary_dict.update(quant_params)
         wandb_run.log(summary_dict)
 
@@ -282,8 +290,3 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
         "model_path": str(model_path),
         **quant_params,
     }
-
-
-
-
-    

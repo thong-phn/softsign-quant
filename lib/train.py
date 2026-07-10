@@ -4,6 +4,7 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from sklearn.metrics import f1_score
 from pathlib import Path
+import wandb
 
 # Dataset 
 class MyDataset(Dataset):
@@ -34,6 +35,7 @@ class MyDataset(Dataset):
         #     "Y": f"body_acc_y_{split}.txt",
         #     "Z": f"body_acc_z_{split}.txt",
         # }
+
         # Load accelerometer data (body acceleration)
         signal_files = {       
             "X": f"total_acc_x_{split}.txt",
@@ -69,7 +71,38 @@ class MyDataset(Dataset):
             self.signals = all_signals[mask]
             self.subjects = all_subjects[mask]
 
+    def load_activity_labels(root_path):
+        label_path = Path(root_path) / "activity_labels.txt"
+        labels = {}
+        with open(label_path, 'r') as f:
+            for line in f:
+                idx, name = line.strip().split()
+                labels[int(idx) - 1] = name.lower()  # 0-indexed
+        return [labels[i] for i in range(len(labels))]
+        
+    def compute_statistics(self):
+        """
+        Compute mean and std over all windows and time steps for each channel.
+        Returns:
+            mean: array of shape (1, num_channels, 1)
+            std: array of shape (1, num_channels, 1)
+        """
+        if len(self.signals) == 0:
+            return 0.0, 1.0
+        # self.signals shape: (num_windows, num_channels, window_size)
+        mean = self.signals.mean(axis=(0, 2), keepdims=True)
+        std = self.signals.std(axis=(0, 2), keepdims=True)
+        return mean, std
 
+    def apply_normalization(self, mean, std):
+        """
+        Apply z-normalization using provided mean and std.
+        """
+        if len(self.signals) == 0:
+            return
+        std = np.where(std < 1e-6, 1.0, std)
+        self.signals = (self.signals - mean) / std
+    
     def __len__(self):
         return len(self.labels)
 
@@ -107,13 +140,21 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, wandb_run=N
     val_dataset = MyDataset(root_path, split='train', subject_ids=val_subjects, use_gyro=use_gyro)
     test_dataset = MyDataset(root_path, split='test', subject_ids=None, use_gyro=use_gyro)
 
+    if len(train_dataset) > 0:
+        train_mean, train_std = train_dataset.compute_statistics()
+        train_dataset.apply_normalization(train_mean, train_std)
+        if len(val_dataset) > 0:
+            val_dataset.apply_normalization(train_mean, train_std)
+        if len(test_dataset) > 0:
+            test_dataset.apply_normalization(train_mean, train_std)
+
     # Generator for reproducible DataLoader shuffling
     g = torch.Generator()
     g.manual_seed(42)
 
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, generator=g)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, generator=g) if len(train_dataset) > 0 else None
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False) if len(val_dataset) > 0 else None
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False) if len(test_dataset) > 0 else None
 
     print(f"Train samples: {len(train_dataset)}")
     print(f"Val samples: {len(val_dataset)}")
@@ -124,7 +165,7 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, wandb_run=N
     print(f"Using {num_channels} channels ({'accel + gyro' if use_gyro else 'accel only'})")
 
     # Training loop configuration
-    quantization = train_kwargs.get('quantization', 'softsign')
+    quantization = train_kwargs.get('quantization', 'no')
     per_channel_quant = train_kwargs.get('per_channel_quant', False)
     model = model_class(num_channels=num_channels, quantization=quantization, per_channel_quant=per_channel_quant).to(device)
     criterion = nn.CrossEntropyLoss()
@@ -244,7 +285,6 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, wandb_run=N
             print(f"Early Stopping: Epoch [{epoch+1}/{epochs}] (patience={patience}, min_delta={min_delta}).")
             break
 
-
     # Test with best model
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
@@ -314,7 +354,9 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, wandb_run=N
                 quant_params["gamma_gamma"] = float(gamma_param.item())
                 quant_params["gamma_mu"] = float(offset_param.item())
 
-    if wandb_run is not None: # tracking
+    # Wandb logging
+    if wandb_run is not None: 
+        # Metrics
         summary_dict = {
             "best_val_loss": best_val_loss,
             "best_val_acc": best_val_accuracy,
@@ -323,9 +365,16 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, wandb_run=N
             "test_acc": test_acc,
             "test_f1_macro": test_f1,
         }
-        # Add quantization parameters to summary
+        # Confusion matrix
+        summary_dict["confusion_matrix"] = wandb.plot.confusion_matrix(
+            y_true=all_labels,
+            preds=all_preds,
+            class_names=MyDataset.load_activity_labels(root_path)
+        )
+        # Quantization parameters
         summary_dict.update(quant_params)
         wandb_run.log(summary_dict)
+
 
     return {
         "best_val_loss": best_val_loss,

@@ -6,13 +6,13 @@ from sklearn.metrics import f1_score
 from pathlib import Path
 import wandb
 
-from lib.wear_data import WearDataset
+from lib.mhealth_data import MHealthDataset
 
 # Training function
 def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjects, wandb_run=None, **train_kwargs):
     """
     Args:
-        root_path: path to WEAR
+        root_path: path to mhealth
         model_class
         train_subjects
         val_subjects
@@ -31,9 +31,9 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
     model_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Create dataset and dataloader
-    train_dataset = WearDataset(root_path, subject_ids=train_subjects)
-    val_dataset = WearDataset(root_path, subject_ids=val_subjects)
-    test_dataset = WearDataset(root_path, subject_ids=test_subjects)
+    train_dataset = MHealthDataset(root_path, subject_ids=train_subjects)
+    val_dataset = MHealthDataset(root_path, subject_ids=val_subjects)
+    test_dataset = MHealthDataset(root_path, subject_ids=test_subjects)
 
     if len(train_dataset) > 0:
         train_mean, train_std = train_dataset.compute_statistics()
@@ -55,10 +55,10 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
     print(f"Val samples: {len(val_dataset)}")
     print(f"Test samples: {len(test_dataset)}")
 
-    # WEAR dataset has 3 channels (left_arm_acc_x, y, z) and 8 classes
-    num_channels = 3
-    num_classes = 8
-    print(f"Using {num_channels} channels (accel only) for {num_classes} classes")
+    # mHealth dataset has 9 channels (right_arm acc, gyro, mag) and 13 classes
+    num_channels = 9
+    num_classes = 13
+    print(f"Using {num_channels} channels for {num_classes} classes")
 
     # Training loop configuration
     quantization = train_kwargs.get('quantization', 'softsign')
@@ -66,7 +66,15 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
     
     # We pass num_classes=num_classes down to the model if it supports it
     model = model_class(num_channels=num_channels, num_classes=num_classes, quantization=quantization, per_channel_quant=per_channel_quant).to(device)
-    criterion = nn.CrossEntropyLoss()
+    # Compute class weights from training data (inverse frequency)
+    all_train_labels = train_dataset.labels
+    class_counts = np.bincount(all_train_labels, minlength=num_classes).astype(np.float32)
+    class_counts = np.maximum(class_counts, 1.0)  # avoid division by zero for missing classes
+    class_weights = 1.0 / class_counts
+    class_weights = class_weights / class_weights.sum() * num_classes  # normalize so weights sum to num_classes
+    class_weights = torch.tensor(class_weights, dtype=torch.float32, device=device)
+    print(f"Class weights: {class_weights.cpu().numpy()}")
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=10, min_lr=1e-6
@@ -266,7 +274,7 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
         summary_dict["confusion_matrix"] = wandb.plot.confusion_matrix(
             y_true=all_labels,
             preds=all_preds,
-            class_names=WearDataset.load_activity_labels(root_path)
+            class_names=MHealthDataset.load_activity_labels(root_path)
         )
         # Add quantization parameters to summary
         summary_dict.update(quant_params)

@@ -3,98 +3,52 @@ import numpy as np
 from torch.utils.data import Dataset
 from pathlib import Path
 
-# Mapping of fine-grained text labels to broader integer labels [0, 7]
-# 1. jogging (jogging and jogging sidestep, skipping, butt-kicks, rotating arms)                      
-# 2. stretching (stretching lunging, hamstrings, triceps, shoulders)                        
-# 3. lunges                              
-# 4. sit-ups (sit-ups and sit-ups complex)                            
-# 5. push-ups (push-ups and push-ups complex)                           
-# 6. burpees                             
-# 7. bench-dips                          
-# 8. idle (null) 
-
-LABEL_MAP = {
-    'jogging': 0,
-    'jogging (sidesteps)': 0,
-    'jogging (skipping)': 0,
-    'jogging (butt-kicks)': 0,
-    'jogging (rotating arms)': 0,
-    'stretching (lunging)': 1,
-    'stretching (hamstrings)': 1,
-    'stretching (triceps)': 1,
-    'stretching (shoulders)': 1,
-    'stretching (lumbar rotation)': 1,
-    'lunges': 2,
-    'lunges (complex)': 2,
-    'sit-ups': 3,
-    'sit-ups (complex)': 3,
-    
-    'push-ups': 4,
-    'push-ups (complex)': 4,
-    
-    'burpees': 5,
-    
-    'bench-dips': 6,
-    
-    'null': 7,
-}
-
-
-import csv
+# Mapping mHealth labels (1-12) to (0-11), and 0 (null) to 12
+def map_label(label):
+    if label == 0:
+        return 12
+    elif 1 <= label <= 12:
+        return label - 1
+    return -1
 
 def load_and_window_subject_data(file_path, window_size=100, step_size=50):
     """
-    Loads a single subject's CSV, extracts 'left_arm_acc_x,y,z' and 'label',
-    maps the labels, and applies a sliding window.
+    Loads a single subject's log file for mHealth, extracts right-lower-arm 
+    sensor data (columns 15-23), and maps the label (column 24).
     
     Args:
-        file_path: pathlib.Path to the subject's csv file
+        file_path: pathlib.Path to the subject's log file
         window_size: number of samples per window (default: 100 for 2s at 50Hz)
         step_size: number of samples to slide the window (default: 50 for 50% overlap)
         
     Returns:
-        signals: numpy array of shape (num_windows, 3, window_size)
+        signals: numpy array of shape (num_windows, 9, window_size)
         labels: numpy array of shape (num_windows,)
     """
-    acc_data = []
+    data = []
     mapped_labels = []
 
-    with open(file_path, newline='', encoding='utf-8') as f:
-        reader = csv.reader(f)
-        headers = next(reader)
-        
-        # WEAR CSV is: sbj_id, right_arm_acc_x, right_arm_acc_y, right_arm_acc_z, 
-        # right_leg_acc_x, right_leg_acc_y, right_leg_acc_z, 
-        # left_leg_acc_x, left_leg_acc_y, left_leg_acc_z, 
-        # left_arm_acc_x, left_arm_acc_y, left_arm_acc_z, label
-        
-        try:
-            lx_idx = headers.index('left_arm_acc_x')
-            ly_idx = headers.index('left_arm_acc_y')
-            lz_idx = headers.index('left_arm_acc_z')
-            lbl_idx = headers.index('label')
-        except ValueError as e:
-            print(f"Error finding columns in {file_path}: {e}")
-            return np.array([]), np.array([])
-
-        for row in reader:
-            lbl_str = row[lbl_idx].strip()
-            
-            # Skip rows where either x, y, or z is empty
-            if not row[lx_idx].strip() or not row[ly_idx].strip() or not row[lz_idx].strip():
-                continue
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) < 24:
+                    continue
                 
-            acc_data.append([float(row[lx_idx]), float(row[ly_idx]), float(row[lz_idx])])
-            
-            if lbl_str in LABEL_MAP:
-                mapped_labels.append(LABEL_MAP[lbl_str])
-            else:
-                mapped_labels.append(-1)
+                # columns 15 to 23 are indices 14 to 22
+                sensor_data = [float(parts[i]) for i in range(14, 23)]
+                label = int(parts[23])
+                
+                data.append(sensor_data)
+                mapped_labels.append(map_label(label))
+    except Exception as e:
+        print(f"Error reading {file_path}: {e}")
+        return np.array([]), np.array([])
 
-    acc_data = np.array(acc_data, dtype=np.float32)
+    data = np.array(data, dtype=np.float32)
     mapped_labels = np.array(mapped_labels, dtype=np.int64)
     
-    num_samples = len(acc_data)
+    num_samples = len(data)
     
     windows_signals = []
     windows_labels = []
@@ -104,7 +58,7 @@ def load_and_window_subject_data(file_path, window_size=100, step_size=50):
         end = start + window_size
         
         # Extracted window
-        window_signal = acc_data[start:end]
+        window_signal = data[start:end]
         window_label_seq = mapped_labels[start:end]
         
         # Most frequent label in the window using offset to support -1
@@ -116,20 +70,19 @@ def load_and_window_subject_data(file_path, window_size=100, step_size=50):
         if mode_label == -1:
             continue
         
-        # Append signal transposed to shape (3, window_size)
+        # Append signal transposed to shape (9, window_size)
         windows_signals.append(window_signal.T)
         windows_labels.append(mode_label)
         
     return np.array(windows_signals, dtype=np.float32), np.array(windows_labels, dtype=np.int64)
 
-
-class WearDataset(Dataset):
+class MHealthDataset(Dataset):
     def __init__(self, root_path, subject_ids):
         """
-        Load WEAR data for specific subjects.
+        Load mHealth data for specific subjects.
         
         Args:
-            root_path: Path object to the WEAR dataset root directory (containing sbj_X.csv)
+            root_path: Path object to the mHealth dataset root directory
             subject_ids: List of integers specifying which subjects to load
         """
         all_signals = []
@@ -138,7 +91,7 @@ class WearDataset(Dataset):
         
         root_path = Path(root_path)
         for sbj_id in subject_ids:
-            file_path = root_path / f"sbj_{sbj_id}.csv"
+            file_path = root_path / f"mHealth_subject{sbj_id}.log"
             if not file_path.exists():
                 print(f"Warning: {file_path} not found. Skipping.")
                 continue
@@ -185,7 +138,6 @@ class WearDataset(Dataset):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        # Return (input, target) as tensors
         x = torch.tensor(self.signals[idx], dtype=torch.float32)
         y = torch.tensor(self.labels[idx], dtype=torch.long)
         return x, y
@@ -193,12 +145,17 @@ class WearDataset(Dataset):
     @staticmethod
     def load_activity_labels(root_path=None):
         return [
-            'jogging',
-            'stretching',
-            'lunges',
-            'sit-ups',
-            'push-ups',
-            'burpees',
-            'bench-dips',
+            'Standing still',
+            'Sitting and relaxing',
+            'Lying down',
+            'Walking',
+            'Climbing stairs',
+            'Waist bends forward',
+            'Frontal elevation of arms',
+            'Knees bending (crouching)',
+            'Cycling',
+            'Jogging',
+            'Running',
+            'Jump front & back',
             'null'
         ]

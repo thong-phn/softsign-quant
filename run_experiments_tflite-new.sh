@@ -6,25 +6,26 @@
 set -e # Exit immediately if a command exits with a non-zero status
 
 # Define arrays for parameters
-DATASETS=("uci-har")
-# DATASETS=("wear")
-QUANT_METHODS=("gamma" "softsign" "linear" "no")
-PER_CHANNEL_OPTIONS=("" "--per-channel-quant")
-PTQ_SCRIPT="export_loso_tflite_ptq.py"
+DATASETS=("recgym" "realworld" "mhealth")
+QUANT_METHODS=("no" "linear" "softsign" "gamma")
+PTQ_SCRIPT="export_loso_tflite_ptq-new.py"
 
 echo "================================================="
 echo "Starting Experiment Pipeline"
 echo "================================================="
 
 for DATASET in "${DATASETS[@]}"; do
+    MAIN_SCRIPT="loso-new.py"
+    
+    # Map dataset name for training script
     if [ "$DATASET" == "uci-har" ]; then
-        MAIN_SCRIPT="main_loso.py"
+        TRAIN_DATASET="uci"
     else
-        MAIN_SCRIPT="wear_main_loso.py"
+        TRAIN_DATASET="$DATASET"
     fi
 
     echo "-------------------------------------------------"
-    echo "Processing Dataset: $DATASET"
+    echo "Processing Dataset: $DATASET (Training as $TRAIN_DATASET)"
     echo "-------------------------------------------------"
 
     # 1. Run Shared Axis (no per-channel-quant flag)
@@ -33,7 +34,7 @@ for DATASET in "${DATASETS[@]}"; do
         echo "Starting Configuration: Dataset=$DATASET | Quantization=$QUANT | Axis=Shared"
         
         echo " -> Training & Evaluation (F32) [Script: $MAIN_SCRIPT]"
-        python $MAIN_SCRIPT --quantization $QUANT --run_name SS-scaled-v2 --no-wandb
+        python $MAIN_SCRIPT --dataset $TRAIN_DATASET --quantization $QUANT --run_name_prefix 'JUL10,SSV3,NORM'
         
         echo " -> Post-Training Quantization (INT8) [Script: $PTQ_SCRIPT]"
         python $PTQ_SCRIPT --dataset $DATASET --quantization $QUANT
@@ -48,7 +49,7 @@ for DATASET in "${DATASETS[@]}"; do
         echo "Starting Configuration: Dataset=$DATASET | Quantization=$QUANT | Axis=Per-Channel"
         
         echo " -> Training & Evaluation (F32) [Script: $MAIN_SCRIPT]"
-        python $MAIN_SCRIPT --quantization $QUANT --per-channel-quant --run_name SS-scaled-v2 --no-wandb
+        python $MAIN_SCRIPT --dataset $TRAIN_DATASET --quantization $QUANT --per-channel-quant --run_name_prefix 'JUL10,SSV3,NORM'
         
         echo " -> Post-Training Quantization (INT8) [Script: $PTQ_SCRIPT]"
         python $PTQ_SCRIPT --dataset $DATASET --quantization $QUANT --per-channel-quant
