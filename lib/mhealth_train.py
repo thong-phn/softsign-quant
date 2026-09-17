@@ -55,9 +55,9 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
     print(f"Val samples: {len(val_dataset)}")
     print(f"Test samples: {len(test_dataset)}")
 
-    # mHealth dataset has 9 channels (right_arm acc, gyro, mag) and 13 classes
+    # mHealth dataset has 9 channels (right_arm acc, gyro, mag) and 12 classes (null excluded)
     num_channels = 9
-    num_classes = 13
+    num_classes = 12
     print(f"Using {num_channels} channels for {num_classes} classes")
 
     # Training loop configuration

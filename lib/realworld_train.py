@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 from torch.utils.data import DataLoader
 from sklearn.metrics import f1_score
+from sklearn.utils.class_weight import compute_class_weight
 from pathlib import Path
 import wandb
 
@@ -65,7 +66,19 @@ def train_loso(root_path, model_class, train_subjects, val_subjects, test_subjec
     
     # We pass num_classes=num_classes down to the model if it supports it
     model = model_class(num_channels=num_channels, num_classes=num_classes, quantization=quantization, per_channel_quant=per_channel_quant).to(device)
-    criterion = nn.CrossEntropyLoss()
+    
+    # Compute balanced class weights to handle imbalanced classes (e.g. jumping ~2.4%)
+    if hasattr(train_dataset, 'labels') and len(train_dataset.labels) > 0:
+        classes = np.unique(train_dataset.labels)
+        class_weights = compute_class_weight(class_weight='balanced', classes=classes, y=train_dataset.labels)
+        weights = np.ones(num_classes, dtype=np.float32)
+        for c, w in zip(classes, class_weights):
+            weights[c] = w
+        class_weights_tensor = torch.tensor(weights, dtype=torch.float32).to(device)
+        criterion = nn.CrossEntropyLoss(weight=class_weights_tensor)
+        print(f"Using class weights: {weights}")
+    else:
+        criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=10, min_lr=1e-6

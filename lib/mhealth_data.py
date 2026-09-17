@@ -66,8 +66,8 @@ def load_and_window_subject_data(file_path, window_size=100, step_size=50):
         mode_idx = counts.argmax()
         mode_label = mode_idx - 1
         
-        # Discard window if mode is invalid (-1)
-        if mode_label == -1:
+        # Discard window if mode is invalid (-1) or null (12)
+        if mode_label == -1 or mode_label == 12:
             continue
         
         # Append signal transposed to shape (9, window_size)
@@ -157,5 +157,4 @@ class MHealthDataset(Dataset):
             'Jogging',
             'Running',
             'Jump front & back',
-            'null'
         ]

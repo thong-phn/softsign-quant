@@ -246,6 +246,8 @@ def main():
         log_name += "_per_channel"
     if args.run_name:
         log_name += f"_{args.run_name}"
+    if args.run_name_prefix:
+        log_name += f"_{args.run_name_prefix}"
     log_name += ".txt"
     
     log_path = log_dir / log_name

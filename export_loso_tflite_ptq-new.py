@@ -522,6 +522,12 @@ def main():
             train_ds = _make_dataset(args.dataset, root_path, train_subjects, split="train")
             test_ds = _make_dataset(args.dataset, root_path, [test_subject], split=test_split)
 
+            if len(train_ds) > 0:
+                train_mean, train_std = train_ds.compute_statistics()
+                train_ds.apply_normalization(train_mean, train_std)
+                if len(test_ds) > 0:
+                    test_ds.apply_normalization(train_mean, train_std)
+
             if len(train_ds) == 0 or len(test_ds) == 0:
                 print("  [skip] Empty train/test dataset for this fold")
                 continue
@@ -577,7 +583,7 @@ def main():
                     # Save .tflite for inspection in a persistent location
                     tflite_dir = project_root / "models" / "tflite"
                     tflite_dir.mkdir(parents=True, exist_ok=True)
-                    tflite_out = tflite_dir / f"{dataset_tag}_test_{test_subject}_val_{val_subject}_{cfg}.tflite"
+                    tflite_out = tflite_dir / f"{dataset_tag}_{args.quantization}_{axis_name}_test_{test_subject}_val_{val_subject}_{cfg}.tflite"
                     tflite_out.write_bytes(tflite_model)
 
                     ops_str, macs_str = _format_ops_macs(ops, macs)

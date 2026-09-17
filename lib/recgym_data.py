@@ -19,7 +19,7 @@ LABEL_MAP = {
     'Walking': 11
 }
 
-def load_and_window_recgym_data(file_path, subject_ids, window_size=100, step_size=50):
+def load_and_window_recgym_data(file_path, subject_ids, window_size=40, step_size=20):
     """
     Loads RecGym data for given subjects, wrist position, 
     extracts A_x, A_y, A_z, G_x, G_y, G_z and Workout,

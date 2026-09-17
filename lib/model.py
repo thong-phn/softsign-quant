@@ -256,11 +256,11 @@ class SeparableConvCNN(nn.Module):
         # Stem block
         # self.bn0 = nn.BatchNorm1d(num_channels)
         if self.quantization == 'softsign':
-            self.quant = SoftsignQuant(bit_width=4, num_channels=num_channels, per_channel=per_channel_quant)
+            self.quant = SoftsignQuant(bit_width=1, num_channels=num_channels, per_channel=per_channel_quant)
         elif self.quantization == 'gamma':
-            self.quant = GammaQuant(bit_width=4, num_channels=num_channels, per_channel=per_channel_quant)
+            self.quant = GammaQuant(bit_width=1, num_channels=num_channels, per_channel=per_channel_quant)
         elif self.quantization == 'linear':
-            self.quant = LinearQuant(bit_width=4, num_channels=num_channels, per_channel=per_channel_quant)
+            self.quant = LinearQuant(bit_width=1, num_channels=num_channels, per_channel=per_channel_quant)
         else:
             self.quant = None
         

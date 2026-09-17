@@ -529,6 +529,13 @@ def main():
         train_ds = _make_dataset(args.dataset, root_path, train_subjects, split="train")
         test_ds = _make_dataset(args.dataset, root_path, test_eval_subjects, split=test_split)
 
+        # Apply z-normalization to match training pipeline
+        if len(train_ds) > 0 and hasattr(train_ds, "compute_statistics"):
+            train_mean, train_std = train_ds.compute_statistics()
+            train_ds.apply_normalization(train_mean, train_std)
+            if len(test_ds) > 0:
+                test_ds.apply_normalization(train_mean, train_std)
+
         if len(train_ds) == 0 or len(test_ds) == 0:
             print("  [skip] Empty train/test dataset for this fold")
             continue
